@@ -401,18 +401,23 @@ class FcmService {
       if (isNewOrder && orderId != null) {
         if (!OrderResolutionTracker.hasAlertedRecently(orderId)) {
           OrderResolutionTracker.markAlerted(orderId);
-          LocalNotificationService.instance
-              .show(
-                id: orderId.hashCode & 0x7fffffff,
-                title: title,
-                body: body,
-                payload: _encodeTapPayload(type: type ?? 'new_order', orderId: orderId),
-                isNewOrder: true,
-                fullScreenIntent: false,
-              )
-              .then((shown) {
-                if (shown) cancelFcmTrayCopy(orderId);
-              });
+          // On Android, native NewOrderNotifier already displays the high-priority
+          // notification with Accept/Reject action buttons and custom sound.
+          // Showing another notification here in Dart creates a duplicate 2nd notification!
+          if (defaultTargetPlatform != TargetPlatform.android) {
+            LocalNotificationService.instance
+                .show(
+                  id: orderId.hashCode & 0x7fffffff,
+                  title: title,
+                  body: body,
+                  payload: _encodeTapPayload(type: type ?? 'new_order', orderId: orderId),
+                  isNewOrder: true,
+                  fullScreenIntent: false,
+                )
+                .then((shown) {
+                  if (shown) cancelFcmTrayCopy(orderId);
+                });
+          }
 
           final targetOrderId = orderId;
           NewOrderActionChannel.startSound(targetOrderId);

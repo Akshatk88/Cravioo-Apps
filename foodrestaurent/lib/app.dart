@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:food_user_application/config/theme/app_theme.dart';
@@ -107,13 +108,17 @@ class _FoodUserApplicationState extends ConsumerState<FoodUserApplication>
           final targetOrderId = orderId;
           NewOrderActionChannel.startSound(targetOrderId);
           _showIncomingDialogWithRetry(targetOrderId);
-          LocalNotificationService.instance.show(
-            title: 'New order received',
-            body: displayId != null ? 'Order #$displayId is waiting for review.' : 'New order received',
-            payload: '{"type":"new_order","orderId":"$orderId"}',
-            isNewOrder: true,
-            fullScreenIntent: false,
-          );
+          // On Android, Native FCM service already displays the high-priority alert.
+          // Don't post a duplicate system tray notification from socket handler on Android!
+          if (defaultTargetPlatform != TargetPlatform.android) {
+            LocalNotificationService.instance.show(
+              title: 'New order received',
+              body: displayId != null ? 'Order #$displayId is waiting for review.' : 'New order received',
+              payload: '{"type":"new_order","orderId":"$orderId"}',
+              isNewOrder: true,
+              fullScreenIntent: false,
+            );
+          }
         }
       } catch (_) {}
     }
@@ -215,16 +220,19 @@ class _FoodUserApplicationState extends ConsumerState<FoodUserApplication>
     await NewOrderActionChannel.dismiss(action.orderId);
     await cancelFcmTrayCopy(action.orderId);
 
-    // Show immediate confirmation notification
-    LocalNotificationService.instance.show(
-      id: action.orderId.hashCode & 0x7fffffff,
-      title: action.accepted ? 'Order Accepted ✅' : 'Order Rejected ❌',
-      body: action.accepted
-          ? 'Order #${action.orderId} accepted and confirmed.'
-          : 'Order #${action.orderId} was rejected.',
-      isNewOrder: false,
-      fullScreenIntent: false,
-    );
+    // Show immediate confirmation notification on non-Android platforms
+    // (on Android, Kotlin's NewOrderActionReceiver already displayed showActionFeedback)
+    if (defaultTargetPlatform != TargetPlatform.android) {
+      LocalNotificationService.instance.show(
+        id: action.orderId.hashCode & 0x7fffffff,
+        title: action.accepted ? 'Order Accepted ✅' : 'Order Rejected ❌',
+        body: action.accepted
+            ? 'Order #${action.orderId} accepted and confirmed.'
+            : 'Order #${action.orderId} was rejected.',
+        isNewOrder: false,
+        fullScreenIntent: false,
+      );
+    }
 
     if (!mounted) return;
     ref.read(liveOrdersControllerProvider.notifier).refresh();
