@@ -19,6 +19,12 @@ class FoodModel {
   final bool isPopular;
   final bool isQuickDelivery;
   final double packagingFee;
+  final String restaurantName;
+  final String categoryName;
+  final String preparationTime;
+  final List<String> tags;
+  final List<String> nutrition;
+  final List<String> allergies;
 
   /// Size/portion choices. Empty when the item has a single price.
   final List<FoodVariant> variants;
@@ -41,6 +47,12 @@ class FoodModel {
     this.isPopular = false,
     this.isQuickDelivery = false,
     this.packagingFee = 0.0,
+    this.restaurantName = '',
+    this.categoryName = '',
+    this.preparationTime = '',
+    this.tags = const [],
+    this.nutrition = const [],
+    this.allergies = const [],
     this.variants = const [],
   });
 
@@ -112,6 +124,7 @@ class FoodModel {
       rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
       reviewCount: (json['totalRatings'] as num?)?.toInt() ?? 0,
       calories: (json['calories'] as num?)?.toInt() ?? 0,
+      deliveryTime: (json['deliveryTime'] ?? json['preparationTime'] ?? '').toString(),
       isVeg: ((json['foodType']?.toString().toLowerCase() ?? '').contains('non') || json['isVeg'] == false)
           ? false
           : (json['isVeg'] == true ||
@@ -120,6 +133,12 @@ class FoodModel {
       isPopular: json['isRecommended'] as bool? ?? false,
       isQuickDelivery: json['isQuickDelivery'] as bool? ?? false,
       packagingFee: (json['packagingFee'] as num?)?.toDouble() ?? 0.0,
+      restaurantName: (json['restaurantName'] ?? '').toString(),
+      categoryName: (json['categoryName'] ?? json['category'] ?? '').toString(),
+      preparationTime: (json['preparationTime'] ?? json['prepTime'] ?? '').toString(),
+      tags: (json['tags'] as List?)?.map((e) => e.toString()).toList() ?? const [],
+      nutrition: (json['nutrition'] as List?)?.map((e) => e.toString()).toList() ?? const [],
+      allergies: (json['allergies'] as List?)?.map((e) => e.toString()).toList() ?? const [],
       variants: FoodVariant.listFrom(json),
     );
   }
@@ -147,6 +166,12 @@ class FoodModel {
       isSpicy: json['isSpicy'] as bool? ?? false,
       isPopular: json['isPopular'] as bool? ?? false,
       isQuickDelivery: json['isQuickDelivery'] as bool? ?? false,
+      restaurantName: json['restaurantName'] as String? ?? '',
+      categoryName: json['categoryName'] as String? ?? '',
+      preparationTime: json['preparationTime'] as String? ?? '',
+      tags: (json['tags'] as List<dynamic>?)?.map((e) => e as String).toList() ?? const [],
+      nutrition: (json['nutrition'] as List<dynamic>?)?.map((e) => e as String).toList() ?? const [],
+      allergies: (json['allergies'] as List<dynamic>?)?.map((e) => e as String).toList() ?? const [],
       variants: FoodVariant.listFrom(json),
     );
   }
@@ -169,6 +194,12 @@ class FoodModel {
       'isSpicy': isSpicy,
       'isPopular': isPopular,
       'isQuickDelivery': isQuickDelivery,
+      'restaurantName': restaurantName,
+      'categoryName': categoryName,
+      'preparationTime': preparationTime,
+      'tags': tags,
+      'nutrition': nutrition,
+      'allergies': allergies,
       'variants': variants.map((v) => v.toJson()).toList(),
     };
   }

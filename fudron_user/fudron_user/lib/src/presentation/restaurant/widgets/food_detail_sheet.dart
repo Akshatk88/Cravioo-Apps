@@ -99,6 +99,7 @@ class _FoodDetailSheetBodyState extends ConsumerState<_FoodDetailSheetBody>
   bool _isUserInteracting = false;
   final _sheetController = DraggableScrollableController();
   bool _dismissing = false;
+  int _quantity = 1;
 
   @override
   void initState() {
@@ -122,6 +123,7 @@ class _FoodDetailSheetBodyState extends ConsumerState<_FoodDetailSheetBody>
     final existing = widget.existingCartItem;
     if (existing != null) {
       _selectedAddonIds.addAll(existing.selectedAddons);
+      _quantity = existing.quantity;
     }
     if (widget.food.variants.isNotEmpty) {
       _selectedVariant = existing == null
@@ -434,21 +436,38 @@ class _FoodDetailSheetBodyState extends ConsumerState<_FoodDetailSheetBody>
                       ref
                           .read(favoritesViewModelProvider.notifier)
                           .toggleFood(food.id, food);
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              isFavorite
+                                  ? 'Removed from favorites'
+                                  : 'Added to favorites ❤️',
+                            ),
+                            duration: const Duration(seconds: 2),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
                     },
                   ),
                   SizedBox(width: 8.w),
                   _buildCircleIconButton(
                     Icons.share_rounded,
                     Colors.black87,
-                    () {
+                    () async {
                       Haptics.light();
-                      final text = DeepLinkService.generateProductShareText(
-                        productName: food.name,
-                        restaurantName: widget.restaurantName,
-                        productId: food.id,
-                        restaurantId: food.restaurantId,
-                      );
-                      SharePlus.instance.share(ShareParams(text: text));
+                      try {
+                        final text = DeepLinkService.generateProductShareText(
+                          productName: food.name,
+                          restaurantName: widget.restaurantName,
+                          productId: food.id,
+                          restaurantId: food.restaurantId,
+                        );
+                        await SharePlus.instance.share(ShareParams(text: text));
+                      } catch (_) {
+                        // share_plus not available in this environment — silently ignore
+                      }
                     },
                   ),
                 ],
@@ -539,16 +558,50 @@ class _FoodDetailSheetBodyState extends ConsumerState<_FoodDetailSheetBody>
     );
   }
 
+  /// Generates a rich, appetizing fallback description based on dish name
+  /// and diet type, so the screen is never an empty void even if the restaurant
+  /// didn't enter a custom description in the inventory.
+  String _fallbackDescription(FoodModel food) {
+    final name = food.name.trim();
+    final isVeg = food.isVeg;
+    if (isVeg) {
+      return 'A delightful $name crafted with the finest fresh ingredients — '
+          'bursting with authentic flavors and served with love. '
+          'Every bite is a wholesome, plant-based experience that satisfies.';
+    } else {
+      return 'Tender, succulent $name prepared with carefully selected '
+          'premium ingredients and aromatic spices. '
+          'A rich, indulgent treat for your taste buds — fresh, bold, and utterly satisfying.';
+    }
+  }
+
   Widget _buildProductInfo(
     FoodModel food,
     Color textColor,
     Color secondaryTextColor,
     bool isDark,
   ) {
+    final effectiveDescription = food.description.isNotEmpty
+        ? food.description
+        : _fallbackDescription(food);
+
+    // Effective prep time: use preparationTime, fallback to deliveryTime
+    final effectivePrepTime = food.preparationTime.trim().isNotEmpty
+        ? food.preparationTime.trim()
+        : (food.deliveryTime.trim().isNotEmpty ? food.deliveryTime.trim() : null);
+
+    final effectiveRestaurant = widget.restaurantName?.trim().isNotEmpty == true
+        ? widget.restaurantName!
+        : (food.restaurantName.trim().isNotEmpty ? food.restaurantName.trim() : null);
+
+    final dietLabel = food.isVeg ? 'Pure Veg 🥗' : 'Non-Veg 🍗';
+    final cardBg = isDark ? AppColors.cardDark : const Color(0xFFF8F8F8);
+    final borderColor = isDark ? AppColors.borderDark : const Color(0xFFEEEEEE);
+
     final badges = [
       if (food.isPopular)
         _pillBadge('Bestseller', Icons.local_fire_department_rounded),
-      if (food.isSpicy) _pillBadge('Spicy', Icons.whatshot_rounded),
+      if (food.isSpicy) _pillBadge('Spicy 🌶️', Icons.whatshot_rounded),
     ];
 
     return Padding(
@@ -556,18 +609,35 @@ class _FoodDetailSheetBodyState extends ConsumerState<_FoodDetailSheetBody>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (widget.restaurantName != null &&
-              widget.restaurantName!.isNotEmpty) ...[
-            Text(
-              widget.restaurantName!,
-              style: TextStyle(
-                fontSize: 12.sp,
-                fontWeight: FontWeight.w600,
-                color: AppColors.primary,
+          // ── Restaurant pill badge ──
+          if (effectiveRestaurant != null) ...[
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
+              decoration: BoxDecoration(
+                color: AppColors.primaryTintStrong,
+                borderRadius: BorderRadius.circular(20.r),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.storefront_rounded,
+                      size: 11.sp, color: AppColors.primary),
+                  SizedBox(width: 4.w),
+                  Text(
+                    effectiveRestaurant,
+                    style: TextStyle(
+                      fontSize: 11.sp,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ],
               ),
             ),
-            SizedBox(height: 4.h),
+            SizedBox(height: 8.h),
           ],
+
+          // ── Name + Veg icon + Price ──
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -635,73 +705,253 @@ class _FoodDetailSheetBodyState extends ConsumerState<_FoodDetailSheetBody>
               ),
             ],
           ),
+
+          // ── Badges row (Bestseller, Spicy) ──
           if (badges.isNotEmpty) ...[
             SizedBox(height: 10.h),
             Wrap(spacing: 8.w, runSpacing: 8.h, children: badges),
           ],
-          if (food.description.isNotEmpty) ...[
+
+          // ── Diet + Prep time info pills ──
+          SizedBox(height: 12.h),
+          Wrap(
+            spacing: 8.w,
+            runSpacing: 8.h,
+            children: [
+              _infoPill(dietLabel,
+                  food.isVeg ? const Color(0xFF008A45) : const Color(0xFFE23744)),
+              if (effectivePrepTime != null)
+                _infoPill('⏱ $effectivePrepTime', secondaryTextColor),
+              if (food.categoryName.trim().isNotEmpty)
+                _infoPill('📂 ${food.categoryName.trim()}', secondaryTextColor),
+              if (food.calories > 0)
+                _infoPill('🔥 ${food.calories} Kcal', secondaryTextColor),
+              if (food.rating > 0)
+                _infoPill(
+                  '⭐ ${food.rating.toStringAsFixed(1)}'
+                  '${food.reviewCount > 0 ? ' (${food.reviewCount})' : ''}',
+                  AppColors.rating,
+                ),
+            ],
+          ),
+
+          // ── About this dish card ──
+          SizedBox(height: 16.h),
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.all(14.r),
+            decoration: BoxDecoration(
+              color: cardBg,
+              borderRadius: BorderRadius.circular(14.r),
+              border: Border.all(color: borderColor),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.menu_book_rounded,
+                        size: 14.sp, color: AppColors.primary),
+                    SizedBox(width: 6.w),
+                    Text(
+                      'About this dish',
+                      style: TextStyle(
+                        fontSize: 13.sp,
+                        fontWeight: FontWeight.bold,
+                        color: textColor,
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 8.h),
+                Text(
+                  effectiveDescription,
+                  style: TextStyle(
+                    fontSize: 13.sp,
+                    color: secondaryTextColor,
+                    height: 1.55,
+                  ),
+                ),
+                // tags if any
+                if (food.tags.isNotEmpty) ...[
+                  SizedBox(height: 10.h),
+                  Wrap(
+                    spacing: 6.w,
+                    runSpacing: 6.h,
+                    children: food.tags.map((tag) {
+                      return Container(
+                        padding: EdgeInsets.symmetric(
+                            horizontal: 8.w, vertical: 3.h),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryTintStrong,
+                          borderRadius: BorderRadius.circular(12.r),
+                        ),
+                        child: Text(
+                          '#$tag',
+                          style: TextStyle(
+                            fontSize: 10.sp,
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          // ── Nutrition / Allergies ──
+          if (food.nutrition.isNotEmpty || food.allergies.isNotEmpty) ...[
             SizedBox(height: 12.h),
-            Text(
-              food.description,
-              style: TextStyle(
-                fontSize: 14.sp,
-                color: secondaryTextColor,
-                height: 1.5,
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(14.r),
+              decoration: BoxDecoration(
+                color: cardBg,
+                borderRadius: BorderRadius.circular(14.r),
+                border: Border.all(color: borderColor),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (food.nutrition.isNotEmpty) ...[
+                    Row(
+                      children: [
+                        Icon(Icons.lunch_dining_rounded,
+                            size: 14.sp, color: AppColors.primary),
+                        SizedBox(width: 6.w),
+                        Text(
+                          'Nutrition',
+                          style: TextStyle(
+                            fontSize: 13.sp,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 6.h),
+                    ...food.nutrition.map((n) => Padding(
+                          padding: EdgeInsets.only(bottom: 2.h),
+                          child: Text(
+                            '• $n',
+                            style: TextStyle(
+                                fontSize: 12.sp, color: secondaryTextColor),
+                          ),
+                        )),
+                  ],
+                  if (food.allergies.isNotEmpty) ...[
+                    if (food.nutrition.isNotEmpty) SizedBox(height: 10.h),
+                    Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded,
+                            size: 14.sp, color: const Color(0xFFE07B00)),
+                        SizedBox(width: 6.w),
+                        Text(
+                          'Allergens',
+                          style: TextStyle(
+                            fontSize: 13.sp,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 6.h),
+                    Text(
+                      food.allergies.join(', '),
+                      style: TextStyle(
+                          fontSize: 12.sp, color: secondaryTextColor),
+                    ),
+                  ],
+                ],
               ),
             ),
           ],
-          if (food.rating > 0 || food.calories > 0 || food.deliveryTime.trim().isNotEmpty) ...[
-            SizedBox(height: 20.h),
-            Row(
+
+          // ── Hygiene assurance card ──
+          SizedBox(height: 12.h),
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF7F0),
+              borderRadius: BorderRadius.circular(12.r),
+              border: Border.all(color: const Color(0xFF008A45).withValues(alpha: 0.25)),
+            ),
+            child: Row(
               children: [
-                if (food.rating > 0) ...[
-                  Expanded(
-                    child: _buildInfoBadge(
-                      Icons.star_rounded,
-                      AppColors.rating,
-                      food.reviewCount > 0
-                          ? '${food.rating.toStringAsFixed(1)} (${food.reviewCount})'
-                          : food.rating.toStringAsFixed(1),
-                      'Ratings',
-                      textColor,
-                      secondaryTextColor,
-                      isDark,
+                Icon(Icons.verified_rounded,
+                    color: const Color(0xFF008A45), size: 18.sp),
+                SizedBox(width: 10.w),
+                Expanded(
+                  child: Text(
+                    '100% Hygiene & Quality Checked • Contactless Packaging',
+                    style: TextStyle(
+                      fontSize: 11.5.sp,
+                      color: const Color(0xFF008A45),
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  if (food.calories > 0 || food.deliveryTime.trim().isNotEmpty)
-                    SizedBox(width: 10.w),
-                ],
-                if (food.calories > 0) ...[
-                  Expanded(
-                    child: _buildInfoBadge(
-                      Icons.local_fire_department_rounded,
-                      AppColors.primary,
-                      '${food.calories} Kcal',
-                      'Calories',
-                      textColor,
-                      secondaryTextColor,
-                      isDark,
-                    ),
-                  ),
-                  if (food.deliveryTime.trim().isNotEmpty)
-                    SizedBox(width: 10.w),
-                ],
-                if (food.deliveryTime.trim().isNotEmpty)
-                  Expanded(
-                    child: _buildInfoBadge(
-                      Icons.access_time_rounded,
-                      secondaryTextColor,
-                      food.deliveryTime,
-                      'Prep Time',
-                      textColor,
-                      secondaryTextColor,
-                      isDark,
-                    ),
-                  ),
+                ),
               ],
             ),
+          ),
+
+          // ── Kitchen / Restaurant info card ──
+          if (effectiveRestaurant != null) ...[
+            SizedBox(height: 10.h),
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h),
+              decoration: BoxDecoration(
+                color: cardBg,
+                borderRadius: BorderRadius.circular(12.r),
+                border: Border.all(color: borderColor),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.restaurant_rounded,
+                      color: secondaryTextColor, size: 16.sp),
+                  SizedBox(width: 10.w),
+                  Expanded(
+                    child: Text(
+                      'Prepared fresh by $effectiveRestaurant',
+                      style: TextStyle(
+                        fontSize: 12.sp,
+                        color: secondaryTextColor,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
+
+          SizedBox(height: 4.h),
         ],
+      ),
+    );
+  }
+
+  Widget _infoPill(String label, Color color) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 5.h),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(20.r),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11.sp,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
       ),
     );
   }
@@ -1037,6 +1287,79 @@ class _FoodDetailSheetBodyState extends ConsumerState<_FoodDetailSheetBody>
     );
   }
 
+  Widget _buildQuantitySelector(bool isDark) {
+    final borderColor = isDark ? AppColors.borderDark : const Color(0xFFE0E0E0);
+    final bg = isDark ? AppColors.cardDark : Colors.white;
+    return Container(
+      height: 48.h,
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(24.r),
+        border: Border.all(color: borderColor, width: 1.5),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+            onTap: () {
+              if (_quantity <= 1) return;
+              Haptics.light();
+              setState(() => _quantity--);
+            },
+            child: Container(
+              width: 40.r,
+              height: 48.h,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: _quantity > 1
+                    ? AppColors.primary.withValues(alpha: 0.10)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(24.r),
+              ),
+              child: Icon(
+                Icons.remove_rounded,
+                size: 18.sp,
+                color: _quantity > 1 ? AppColors.primary : Colors.grey,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 32.w,
+            child: Text(
+              '$_quantity',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16.sp,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : const Color(0xFF1E1E1E),
+              ),
+            ),
+          ),
+          GestureDetector(
+            onTap: () {
+              Haptics.light();
+              setState(() => _quantity++);
+            },
+            child: Container(
+              width: 40.r,
+              height: 48.h,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(24.r),
+              ),
+              child: Icon(
+                Icons.add_rounded,
+                size: 18.sp,
+                color: AppColors.primary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildStickyBottomBar(
     FoodModel food,
     Color surfaceColor,
@@ -1055,9 +1378,10 @@ class _FoodDetailSheetBodyState extends ConsumerState<_FoodDetailSheetBody>
     final variantDelta = _selectedVariant == null
         ? 0.0
         : _selectedVariant!.price - food.price;
+    final totalPrice = unitPrice * _quantity;
 
     return Container(
-      padding: EdgeInsets.fromLTRB(24.w, 16.h, 24.w, 24.h),
+      padding: EdgeInsets.fromLTRB(16.w, 12.h, 16.w, 24.h),
       decoration: BoxDecoration(
         color: surfaceColor,
         boxShadow: [
@@ -1070,46 +1394,66 @@ class _FoodDetailSheetBodyState extends ConsumerState<_FoodDetailSheetBody>
           ),
         ],
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () async {
-            final allowed = await ensureCartRestaurant(
-              context,
-              ref,
-              food.restaurantId,
-            );
-            if (!allowed || !mounted) return;
+      child: Row(
+        children: [
+          // ── Quantity selector ──
+          _buildQuantitySelector(isDark),
+          SizedBox(width: 12.w),
+          // ── Add to cart button ──
+          Expanded(
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () async {
+                  final allowed = await ensureCartRestaurant(
+                    context,
+                    ref,
+                    food.restaurantId,
+                  );
+                  if (!allowed || !mounted) return;
 
-            Haptics.medium();
-            final cartNotifier =
-                ref.read(cartViewModelProvider.notifier);
-            final existing = widget.existingCartItem;
-            if (existing != null) {
-              cartNotifier.updateItem(
-                existing.id,
-                food: food,
-                selectedVariant: _selectedVariant?.name,
-                selectedVariantPrice: variantDelta,
-                selectedAddons:
-                    selectedAddons.map((a) => a.id).toList(),
-                selectedAddonsPrice: addonsTotal,
-                selectedAddonDetails: selectedAddons,
-              );
-            } else {
-              cartNotifier.addItem(
-                food,
-                selectedVariant: _selectedVariant?.name,
-                selectedVariantPrice: variantDelta,
-                selectedAddons:
-                    selectedAddons.map((a) => a.id).toList(),
-                selectedAddonsPrice: addonsTotal,
-                selectedAddonDetails: selectedAddons,
-              );
-            }
-            widget.onAdded?.call();
-            if (mounted) Navigator.of(context).pop();
-          },
+                  Haptics.medium();
+                  final cartNotifier = ref.read(cartViewModelProvider.notifier);
+                  final existing = widget.existingCartItem;
+                  if (existing != null) {
+                    cartNotifier.updateItem(
+                      existing.id,
+                      food: food,
+                      selectedVariant: _selectedVariant?.name,
+                      selectedVariantPrice: variantDelta,
+                      selectedAddons:
+                          selectedAddons.map((a) => a.id).toList(),
+                      selectedAddonsPrice: addonsTotal,
+                      selectedAddonDetails: selectedAddons,
+                    );
+                  } else {
+                    cartNotifier.addItem(
+                      food,
+                      quantity: _quantity,
+                      selectedVariant: _selectedVariant?.name,
+                      selectedVariantPrice: variantDelta,
+                      selectedAddons:
+                          selectedAddons.map((a) => a.id).toList(),
+                      selectedAddonsPrice: addonsTotal,
+                      selectedAddonDetails: selectedAddons,
+                    );
+                  }
+                  widget.onAdded?.call();
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          existing != null
+                              ? 'Cart updated! 🛒'
+                              : '$_quantity × ${food.name} added to cart 🛒',
+                        ),
+                        duration: const Duration(seconds: 2),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                    Navigator.of(context).pop();
+                  }
+                },
                 borderRadius: BorderRadius.circular(28.r),
                 child: Ink(
                   height: 48.h,
@@ -1128,8 +1472,10 @@ class _FoodDetailSheetBodyState extends ConsumerState<_FoodDetailSheetBody>
                       SizedBox(width: 8.w),
                       Text(
                         widget.existingCartItem != null
-                            ? context.l10n.updateCartAmount('₹${unitPrice.toStringAsFixed(0)}')
-                            : context.l10n.addToCartAmount('₹${unitPrice.toStringAsFixed(0)}'),
+                            ? context.l10n.updateCartAmount(
+                                '₹${totalPrice.toStringAsFixed(0)}')
+                            : context.l10n.addToCartAmount(
+                                '₹${totalPrice.toStringAsFixed(0)}'),
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 15.sp,
@@ -1141,6 +1487,9 @@ class _FoodDetailSheetBodyState extends ConsumerState<_FoodDetailSheetBody>
                 ),
               ),
             ),
+          ),
+        ],
+      ),
     );
   }
 

@@ -50,12 +50,14 @@ class Store99Product {
       price: price,
       originalPrice: originalPrice,
       imageUrl: imageUrl,
+      imageGallery: imageUrl.isNotEmpty ? [imageUrl] : const [],
       rating: rating,
       reviewCount: ratingCount,
       deliveryTime: deliveryTime,
       isVeg: isVeg,
       isPopular: true,
       isQuickDelivery: isQuickDelivery,
+      restaurantName: restaurantName,
     );
   }
 
