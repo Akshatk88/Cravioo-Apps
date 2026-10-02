@@ -125,33 +125,66 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: RouteNames.restaurantDetail,
         builder: (context, state) {
-          // `extra` is not guaranteed. A shared link carries only the id, and an
-          // unconditional cast threw on arrival; the favourites screen also
-          // already pushes '/restaurant-detail/<id>', which never matched this
-          // route at all. Both now resolve through the loader.
-          final restaurant =
-              state.extra is RestaurantModel ? state.extra as RestaurantModel : null;
+          RestaurantModel? restaurant;
+          String restaurantId = '';
+
+          if (state.extra is RestaurantModel) {
+            restaurant = state.extra as RestaurantModel;
+          } else if (state.extra is Map) {
+            final map = state.extra as Map;
+            if (map['restaurant'] is RestaurantModel) {
+              restaurant = map['restaurant'] as RestaurantModel;
+            }
+            restaurantId = map['restaurantId']?.toString() ??
+                map['id']?.toString() ??
+                '';
+          } else if (state.extra is String) {
+            restaurantId = state.extra as String;
+          }
+
           if (restaurant != null) {
             return RestaurantScreen(restaurant: restaurant);
           }
-          return RestaurantDetailLoaderScreen(
-            restaurantId: state.uri.queryParameters['id'] ??
+
+          if (restaurantId.isEmpty) {
+            restaurantId = state.uri.queryParameters['id'] ??
                 state.uri.queryParameters['restaurantId'] ??
-                '',
+                '';
+          }
+
+          return RestaurantDetailLoaderScreen(
+            restaurantId: restaurantId,
           );
         },
         routes: [
           GoRoute(
             path: ':id',
             builder: (context, state) {
-              final restaurant = state.extra is RestaurantModel
-                  ? state.extra as RestaurantModel
-                  : null;
+              RestaurantModel? restaurant;
+              String restaurantId = state.pathParameters['id'] ?? '';
+
+              if (state.extra is RestaurantModel) {
+                restaurant = state.extra as RestaurantModel;
+              } else if (state.extra is Map) {
+                final map = state.extra as Map;
+                if (map['restaurant'] is RestaurantModel) {
+                  restaurant = map['restaurant'] as RestaurantModel;
+                }
+                if (restaurantId.isEmpty) {
+                  restaurantId = map['restaurantId']?.toString() ??
+                      map['id']?.toString() ??
+                      '';
+                }
+              } else if (state.extra is String && restaurantId.isEmpty) {
+                restaurantId = state.extra as String;
+              }
+
               if (restaurant != null) {
                 return RestaurantScreen(restaurant: restaurant);
               }
+
               return RestaurantDetailLoaderScreen(
-                restaurantId: state.pathParameters['id'] ?? '',
+                restaurantId: restaurantId,
               );
             },
           ),

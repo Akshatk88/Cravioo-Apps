@@ -41,12 +41,17 @@ final restaurantByIdProvider = FutureProvider.family<RestaurantModel?, String>((
 ) async {
   if (restaurantId.isEmpty) return null;
   try {
-    // Without coordinates the backend omits distanceInKm and the detail header
-    // shows no distance at all.
     final here = await ref.watch(userLatLngProvider.future);
-    return await ref
+    final res = await ref
         .watch(catalogRemoteDataSourceProvider)
         .getRestaurantById(restaurantId, lat: here?.lat, lng: here?.lng);
+    if (res != null) return res;
+  } catch (_) {}
+
+  try {
+    return await ref
+        .watch(catalogRemoteDataSourceProvider)
+        .getRestaurantById(restaurantId);
   } catch (_) {
     return null;
   }

@@ -224,8 +224,16 @@ class CatalogRemoteDataSource {
       auth: false,
       cacheTtl: _cacheTtl,
     );
-    final r = data['restaurant'];
-    return r is Map ? RestaurantModel.fromApi(r.cast<String, dynamic>()) : null;
+    final dynamic raw = data['restaurant'] ??
+        (data['data'] is Map ? data['data']['restaurant'] ?? data['data'] : null) ??
+        data;
+    if (raw is Map) {
+      final map = raw.cast<String, dynamic>();
+      if (map.containsKey('_id') || map.containsKey('id') || map.containsKey('name')) {
+        return RestaurantModel.fromApi(map);
+      }
+    }
+    return null;
   }
 
   /// `GET /restaurants/:id/menu` — flattened to the item list the menu screen

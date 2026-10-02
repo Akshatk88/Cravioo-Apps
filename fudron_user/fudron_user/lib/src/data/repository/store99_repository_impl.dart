@@ -46,7 +46,12 @@ class Store99RepositoryImpl implements Store99Repository {
         lng: here?.lng,
       );
       return restaurants
-          .map((r) => Store99Brand(id: r.id, label: r.name, imageUrl: r.imageUrl))
+          .map((r) => Store99Brand(
+                id: r.id,
+                label: r.name,
+                imageUrl: r.imageUrl,
+                restaurant: r,
+              ))
           .toList();
     });
   }
@@ -97,7 +102,7 @@ class Store99RepositoryImpl implements Store99Repository {
     return Store99Product(
       id: f.id,
       restaurantId: f.restaurantId,
-      restaurantName: '',
+      restaurantName: f.restaurantName,
       name: f.name,
       description: f.description,
       price: f.price,

@@ -112,7 +112,11 @@ class _Store99ScreenState extends ConsumerState<Store99Screen> {
 
   void _onProductTap(Store99Product product) {
     Haptics.light();
-    FoodDetailSheet.show(context, product.toFoodModel());
+    FoodDetailSheet.show(
+      context,
+      product.toFoodModel(),
+      restaurantName: product.restaurantName,
+    );
   }
 
   @override
@@ -727,10 +731,17 @@ class _Store99ScreenState extends ConsumerState<Store99Screen> {
           onTap: () {
             Haptics.light();
             Navigator.pop(ctx);
-            context.push(
-              RouteNames.restaurantDetail,
-              extra: {'restaurantId': brand.id},
-            );
+            if (brand.restaurant != null) {
+              context.push(
+                RouteNames.restaurantDetail,
+                extra: brand.restaurant,
+              );
+            } else {
+              context.push(
+                '${RouteNames.restaurantDetail}/${brand.id}',
+                extra: {'restaurantId': brand.id},
+              );
+            }
           },
           behavior: HitTestBehavior.opaque,
           child: Column(
@@ -1080,11 +1091,28 @@ class _Store99ScreenState extends ConsumerState<Store99Screen> {
               thickness: 1,
             ),
             SizedBox(height: 6.h),
-            Text(
-              dish.restaurantName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 11.sp, color: secondaryColor),
+            GestureDetector(
+              onTap: () {
+                Haptics.light();
+                if (dish.restaurant != null) {
+                  context.push(
+                    RouteNames.restaurantDetail,
+                    extra: dish.restaurant,
+                  );
+                } else if (dish.restaurantId.isNotEmpty) {
+                  context.push(
+                    '${RouteNames.restaurantDetail}/${dish.restaurantId}',
+                    extra: {'restaurantId': dish.restaurantId},
+                  );
+                }
+              },
+              behavior: HitTestBehavior.opaque,
+              child: Text(
+                dish.restaurantName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11.sp, color: secondaryColor),
+              ),
             ),
           ],
         ),
@@ -1113,10 +1141,17 @@ class _Store99ScreenState extends ConsumerState<Store99Screen> {
           return GestureDetector(
             onTap: () {
               Haptics.light();
-              context.push(
-                RouteNames.restaurantDetail,
-                extra: {'restaurantId': brand.id},
-              );
+              if (brand.restaurant != null) {
+                context.push(
+                  RouteNames.restaurantDetail,
+                  extra: brand.restaurant,
+                );
+              } else {
+                context.push(
+                  '${RouteNames.restaurantDetail}/${brand.id}',
+                  extra: {'restaurantId': brand.id},
+                );
+              }
             },
             child: SizedBox(
               width: 72.w,
@@ -1443,14 +1478,31 @@ class _Store99ScreenState extends ConsumerState<Store99Screen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
-                  child: Text(
-                    dish.restaurantName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 10.5.sp,
-                      color: secondaryColor,
-                      fontWeight: FontWeight.w500,
+                  child: GestureDetector(
+                    onTap: () {
+                      Haptics.light();
+                      if (dish.restaurant != null) {
+                        context.push(
+                          RouteNames.restaurantDetail,
+                          extra: dish.restaurant,
+                        );
+                      } else if (dish.restaurantId.isNotEmpty) {
+                        context.push(
+                          '${RouteNames.restaurantDetail}/${dish.restaurantId}',
+                          extra: {'restaurantId': dish.restaurantId},
+                        );
+                      }
+                    },
+                    behavior: HitTestBehavior.opaque,
+                    child: Text(
+                      dish.restaurantName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 10.5.sp,
+                        color: secondaryColor,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
                 ),
