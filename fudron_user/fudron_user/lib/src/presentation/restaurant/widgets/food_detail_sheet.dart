@@ -956,55 +956,6 @@ class _FoodDetailSheetBodyState extends ConsumerState<_FoodDetailSheetBody>
     );
   }
 
-  Widget _buildInfoBadge(
-    IconData icon,
-    Color iconColor,
-    String value,
-    String caption,
-    Color textColor,
-    Color secondaryColor,
-    bool isDark,
-  ) {
-    return Container(
-      padding: EdgeInsets.symmetric(vertical: 10.h, horizontal: 8.w),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.surfaceDark : Colors.white,
-        borderRadius: BorderRadius.circular(12.r),
-        border: Border.all(
-          color: isDark ? AppColors.borderDark : const Color(0xFFF0F0F0),
-        ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, color: iconColor, size: 15.sp),
-              SizedBox(width: 4.w),
-              Flexible(
-                child: Text(
-                  value,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12.sp,
-                    color: textColor,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: 2.h),
-          Text(
-            caption,
-            style: TextStyle(fontSize: 10.5.sp, color: secondaryColor),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _groupHeader({
     required String title,
     required String subtitle,
