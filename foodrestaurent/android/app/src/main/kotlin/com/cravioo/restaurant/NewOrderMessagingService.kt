@@ -34,6 +34,7 @@ class NewOrderMessagingService : FlutterFirebaseMessagingService() {
         // first question in every "notifications aren't coming" report, and without a
         // line here it is unanswerable: a message dropped by FCM, by the OEM, or sent
         // to a stale token all look identical from the outside — nothing happens.
+        Log.d(TAG, "[FCM] MESSAGE RECEIVED (native) data=$data")
         Log.i(TAG, "FCM received: type=${data["type"]} id=${orderIdOf(data)}")
 
         // The alert is posted BEFORE super, and the ordering is load-bearing.
@@ -61,7 +62,16 @@ class NewOrderMessagingService : FlutterFirebaseMessagingService() {
 
             try {
                 if (isNewOrder) {
-                    NewOrderNotifier.show(applicationContext, data)
+                    // Backgrounded or killed: the floating card owns the alert, with
+                    // its own ringtone, and no notification goes up behind it. The
+                    // notification is the fallback when the card cannot be drawn
+                    // (permission off) — and the in-app case, where the dialog and
+                    // this notification behave exactly as they did before.
+                    if (!AppForeground.isForeground && NewOrderOverlay.show(applicationContext, data)) {
+                        Log.d(TAG, "[NEW_ORDER] overlay owns this one — no notification")
+                    } else {
+                        NewOrderNotifier.show(applicationContext, data)
+                    }
                 } else if (isDismiss || orderId != null) {
                     NewOrderNotifier.dismiss(applicationContext, orderId)
                 }

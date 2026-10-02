@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:food_user_application/config/theme/app_theme.dart';
 import 'package:food_user_application/core/services/fcm_service.dart';
 import 'package:food_user_application/core/services/new_order_action_channel.dart';
+import 'package:food_user_application/core/services/new_order_overlay_bridge.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:food_user_application/core/services/order_resolution_tracker.dart';
 import 'package:food_user_application/core/services/order_notification_action_handler.dart';
 import 'package:food_user_application/config/router/app_router.dart';
@@ -56,7 +58,21 @@ class _FoodUserApplicationState extends ConsumerState<FoodUserApplication>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(fcmServiceProvider).initForegroundHandling();
       _wireGlobalOrderAlerts();
+      unawaited(_requestOverlayPermissionOnce());
     });
+  }
+
+  /// Asks for "Display over other apps" once, on the first launch after install,
+  /// not at the moment an order arrives. It cannot be granted by a dialog — it sends
+  /// the restaurant to a Settings screen — so it is asked a single time; the flag is
+  /// written first so dismissing it and killing the app does not re-prompt forever.
+  Future<void> _requestOverlayPermissionOnce() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('overlay_permission_asked_v1') == true) return;
+    await prefs.setBool('overlay_permission_asked_v1', true);
+    if (!await NewOrderOverlayBridge.hasPermission()) {
+      await NewOrderOverlayBridge.requestPermission();
+    }
   }
 
   Future<void> _consumePendingIncomingOrder() async {

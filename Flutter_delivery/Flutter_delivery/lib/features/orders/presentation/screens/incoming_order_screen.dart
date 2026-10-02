@@ -57,7 +57,11 @@ class _IncomingOrderScreenState extends ConsumerState<IncomingOrderScreen> {
   void initState() {
     super.initState();
     HapticService.light();
-    SoundService.playRingtone(source: 'IncomingOrderScreen');
+    // Only while the app is in front: backgrounded, the native overlay is ringing
+    // and a second tone here would outlive an Accept tapped on it.
+    if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+      SoundService.playRingtone(source: 'IncomingOrderScreen');
+    }
 
     final deadline = widget.order.acceptanceDeadlineAt;
     _secondsLeft.value = deadline != null

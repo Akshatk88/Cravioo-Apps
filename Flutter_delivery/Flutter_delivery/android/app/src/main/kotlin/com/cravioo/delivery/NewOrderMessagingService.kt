@@ -25,6 +25,7 @@ class NewOrderMessagingService : FlutterFirebaseMessagingService() {
         val orderId = orderIdOf(data)
         var orderStatus = (data["orderStatus"] ?: data["status"])?.lowercase()
 
+        Log.d(TAG, "[FCM] MESSAGE RECEIVED (native) type=$type data=$data")
         Log.i(TAG, "Delivery FCM received: type=$type id=$orderId status=$orderStatus title=$title")
 
         if (data.isNotEmpty() || notif != null) {
@@ -34,7 +35,7 @@ class NewOrderMessagingService : FlutterFirebaseMessagingService() {
 
             if (isExplicitDismiss) {
                 if (orderId != null) {
-                    NewOrderNotifier.dismiss(applicationContext, orderId)
+                    withdraw(orderId)
                 }
                 super.onMessageReceived(message)
                 return
@@ -70,18 +71,30 @@ class NewOrderMessagingService : FlutterFirebaseMessagingService() {
             try {
                 if (isNewOrder) {
                     Log.i(TAG, "Displaying incoming order alert for $orderId (status=$orderStatus)")
-                    NewOrderNotifier.show(applicationContext, data)
+                    // Foreground is excluded deliberately: the in-app alert owns that
+                    // case, and floating a second copy over our own screen helps nobody.
+                    if (!AppForeground.isForeground) {
+                        // Dart's background handler returns early for these pushes, so
+                        // this is the ONLY place a notification can come from — the
+                        // card, or the fallback below, never both.
+                        if (NewOrderOverlay.show(applicationContext, data)) {
+                            Log.d(TAG, "[NEW_ORDER] overlay owns this one — no notification")
+                        } else {
+                            Log.d(TAG, "[NEW_ORDER] overlay unavailable — posting the fallback")
+                            NewOrderNotifier.post(applicationContext, data)
+                        }
+                    }
                 } else {
                     Log.i(TAG, "Suppressed incoming order alert for $orderId: isReady=$isReady isNotReady=$isNotReady status=$orderStatus")
                     if (isNotReady && orderId != null) {
-                        NewOrderNotifier.dismiss(applicationContext, orderId)
+                        withdraw(orderId)
                     }
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed to post new-order alert", t)
                 if (isNewOrder) {
                     try {
-                        NewOrderNotifier.showFallback(applicationContext, data)
+                        NewOrderNotifier.post(applicationContext, data)
                     } catch (_: Throwable) {
                     }
                 }
@@ -89,6 +102,12 @@ class NewOrderMessagingService : FlutterFirebaseMessagingService() {
         }
 
         super.onMessageReceived(message)
+    }
+
+    /** Card, ringtone, our notification and the server's tray copy — all of it. */
+    private fun withdraw(orderId: String) {
+        NewOrderOverlay.dismissFor(orderId)
+        NewOrderNotifier.cancel(applicationContext, orderId)
     }
 
     override fun onNewToken(token: String) {

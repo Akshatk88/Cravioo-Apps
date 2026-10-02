@@ -10,6 +10,11 @@
     <!-- Lets the full-screen alert wake the screen rather than waiting for the
          restaurant to pick the phone up. -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- Draws the incoming-order card over whatever the restaurant is using. Granted
+         only by hand (Settings > Display over other apps); Play Console needs a
+         justification: an order must be answered within seconds, and a notification
+         is capped at ~256dp by the platform so it cannot show the order. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <uses-permission android:name="android.permission.CAMERA"/>
     <!-- Lets the app prompt the restaurant to exempt itself from Doze/App
          Standby battery optimization, which on some OEMs (Xiaomi, Vivo, Oppo)

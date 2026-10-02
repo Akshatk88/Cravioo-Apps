@@ -1,4 +1,5 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Secure-storage wrapper for the restaurant partner's session.
 ///
@@ -24,6 +25,13 @@ class TokenStorage {
   }) async {
     await _storage.write(key: _accessTokenKey, value: accessToken);
     await _storage.write(key: _refreshTokenKey, value: refreshToken);
+    // A plain copy of the access token only, for the native new-order card and its
+    // background Reject — Kotlin cannot read the encrypted store. This trades some of
+    // the Keystore protection for those two features; it is cleared on logout.
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_accessTokenKey, accessToken);
+    } catch (_) {}
   }
 
   Future<String?> get accessToken => _storage.read(key: _accessTokenKey);
@@ -74,6 +82,10 @@ class TokenStorage {
   Future<void> clear() async {
     await _storage.delete(key: _accessTokenKey);
     await _storage.delete(key: _refreshTokenKey);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_accessTokenKey);
+    } catch (_) {}
     await _storage.delete(key: _restaurantIdKey);
     await _storage.delete(key: _restaurantStatusKey);
     // NOTE: _registrationTokenKey is intentionally NOT cleared here

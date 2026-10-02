@@ -18,7 +18,7 @@ import '../network/api_endpoints.dart';
 import '../network/dio_client.dart';
 import '../storage/token_storage.dart';
 import 'new_order_action_channel.dart';
-import 'order_overlay_service.dart';
+import 'new_order_overlay_bridge.dart';
 import 'order_resolution_tracker.dart';
 
 /// Dedicated channel for incoming-order alerts — separate from
@@ -73,7 +73,9 @@ String? _orderIdOf(Map<String, dynamic> data) {
 Future<void> dismissIncomingOrderAlert(String orderId) async {
   await NewOrderActionChannel.stopSound(orderId);
   await NewOrderActionChannel.dismiss(orderId);
-  await OrderOverlayService.closeForOrder(orderId);
+  // The native overlay is taken down by NewOrderMessagingService on the same push;
+  // this covers the app-alive paths (accept/decline/socket withdrawal).
+  await NewOrderOverlayBridge.dismiss();
   final localNotifications = FlutterLocalNotificationsPlugin();
   await localNotifications.initialize(
     const InitializationSettings(
@@ -221,6 +223,15 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
 
   final type = message.data['type']?.toString();
+
+  // Android owns new orders natively (NewOrderMessagingService). The plugin's
+  // receiver starts this handler independently of that service, so returning
+  // early there cannot stop it — it has to return here, before anything is posted.
+  if (Platform.isAndroid && type == 'new_order') {
+    debugPrint('[NEW_ORDER] handled natively — Dart posts nothing');
+    return;
+  }
+
   final orderId = _orderIdOf(message.data);
   String? orderStatus = (message.data['orderStatus'] ?? message.data['status'])?.toString().toLowerCase();
   final title = (message.data['title'] ?? message.notification?.title ?? '').toString().toLowerCase();
@@ -278,18 +289,12 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   }
 
   if (Platform.isAndroid) {
-    // 1. Show floating overlay over other apps if permission is granted
-    try {
-      if (await OrderOverlayService.hasPermission()) {
-        await OrderOverlayService.showForOrder(message.data);
-      }
-    } catch (e) {
-      if (kDebugMode) debugPrint('[FCM Background] Failed to show overlay: $e');
-    }
-
-    // 2. Android native NewOrderMessagingService + NewOrderNotifier already showed
-    // the heads-up notification with action buttons and ringtone on Android.
-    // Do NOT show duplicate notification via localNotifications.show!
+    // Android posts the card — or, failing that, the notification — natively in
+    // NewOrderMessagingService. It has to be decided there because that is the
+    // only place that knows whether the overlay went up, and the plugin's own
+    // receiver runs this handler regardless of what the service does. Posting
+    // from here as well is what put a notification on top of the card.
+    debugPrint('[NEW_ORDER_NOTIFICATION] handled natively — Dart posts nothing');
     return;
   }
 

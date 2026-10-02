@@ -1,6 +1,8 @@
 package com.cravioo.restaurant
 
 import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -8,6 +10,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
 
     private val ORDER_ACTION_CHANNEL = "app.foodrestaurant/new_order_action"
+    private val OVERLAY_CHANNEL = "app.foodrestaurant/new_order_overlay"
 
     /**
      * Held so a decision arriving from the notification can be pushed at Dart
@@ -72,6 +75,45 @@ class MainActivity : FlutterActivity() {
                     }
                 }
             }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, OVERLAY_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "hasOverlayPermission" -> result.success(NewOrderOverlay.canDrawOverlay(this))
+                    // Granted only by hand, from a Settings screen.
+                    "requestOverlayPermission" -> result.success(
+                        try {
+                            startActivity(
+                                Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:$packageName"),
+                                )
+                            )
+                            true
+                        } catch (_: Exception) {
+                            false
+                        }
+                    )
+                    "dismissOverlay" -> {
+                        NewOrderOverlay.dismiss()
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        AppForeground.isForeground = true
+        // The app is in front, so the in-app dialog owns the screen — the floating
+        // card and its ringtone must not outlive that.
+        NewOrderOverlay.dismiss()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        AppForeground.isForeground = false
     }
 
     /**

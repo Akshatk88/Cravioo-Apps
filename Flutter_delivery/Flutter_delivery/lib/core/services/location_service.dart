@@ -17,7 +17,11 @@ class LocationService {
   Stream<Position> get positionStream => _positionController.stream;
   bool get isTracking => _positionSubscription != null;
 
-  Future<bool> ensurePermissions() async {
+  /// [requestExtras] also asks for background location and notifications. Only
+  /// the first-launch flow passes it: going online must not re-prompt for things
+  /// the rider already answered (background location re-opens Settings on every
+  /// call while it is denied).
+  Future<bool> ensurePermissions({bool requestExtras = false}) async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       await Geolocator.openLocationSettings();
@@ -44,7 +48,7 @@ class LocationService {
       return false;
     }
 
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid && requestExtras) {
       final backgroundStatus = await Permission.locationAlways.status;
       if (!backgroundStatus.isGranted) {
         await Permission.locationAlways.request();

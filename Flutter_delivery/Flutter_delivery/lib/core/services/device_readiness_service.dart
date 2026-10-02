@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import 'order_overlay_service.dart';
+import 'new_order_overlay_bridge.dart';
 
 /// One prerequisite for reliably receiving orders.
 class ReadinessCheck {
@@ -62,7 +62,7 @@ class DeviceReadinessService {
 
     final notifications = await Permission.notification.isGranted;
     final battery = await _call<bool>('isIgnoringBatteryOptimizations', true);
-    final overlay = await OrderOverlayService.hasPermission();
+    final overlay = await NewOrderOverlayBridge.hasPermission();
     final hasAutoStart = await hasAutoStartSettings();
 
     return [
@@ -104,7 +104,7 @@ class DeviceReadinessService {
             'Shows the order card on top of whatever you are doing, so you can '
             'accept without opening the app.',
         satisfied: overlay,
-        critical: false,
+        critical: true,
       ),
     ];
   }
@@ -125,7 +125,7 @@ class DeviceReadinessService {
         if (!opened) await _call<bool>('openAppSettings', false);
         break;
       case 'overlay':
-        await OrderOverlayService.requestPermission();
+        await NewOrderOverlayBridge.requestPermission();
         break;
     }
   }

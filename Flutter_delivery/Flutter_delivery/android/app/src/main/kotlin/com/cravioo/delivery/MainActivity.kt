@@ -19,58 +19,89 @@ class MainActivity : FlutterActivity() {
     private val ONLINE_CHANNEL = "app.fooddelivery/rider_online"
     private val READINESS_CHANNEL = "app.fooddelivery/device_readiness"
     private val ORDER_ACTION_CHANNEL = "app.fooddelivery/new_order_action"
-
-    private var actionChannel: MethodChannel? = null
-    private var pendingIncomingOrderId: String? = null
+    private val OVERLAY_CHANNEL = "app.fooddelivery/new_order_overlay"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        val initialOrderId = intent?.getStringExtra(NewOrderNotifier.EXTRA_ORDER_ID)
-            ?: intent?.getStringExtra("orderId")
-        if (!initialOrderId.isNullOrBlank()) {
-            pendingIncomingOrderId = initialOrderId
-        }
-
+        // The in-app alert's own ringtone. The floating card and its fallback
+        // notification are native and never go through here.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ORDER_ACTION_CHANNEL)
-            .also { channel ->
-                actionChannel = channel
-                PendingOrderAction.listener = { action ->
-                    runOnUiThread { actionChannel?.invokeMethod("onOrderAction", action) }
-                }
-                pendingIncomingOrderId?.let { id ->
-                    runOnUiThread {
-                        actionChannel?.invokeMethod("onIncomingOrder", mapOf("orderId" to id))
-                    }
-                }
-                channel.setMethodCallHandler { call, result ->
-                    when (call.method) {
-                        "consumePendingAction" -> result.success(PendingOrderAction.consume())
-                        "hasPendingAction" -> result.success(PendingOrderAction.hasPending())
-                        "consumePendingIncomingOrderId" -> {
-                            val id = pendingIncomingOrderId
-                            pendingIncomingOrderId = null
-                            result.success(id)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "dismissOrderAlert" -> {
+                        val orderId = call.argument<String>("orderId")
+                        NewOrderRingtone.stop(orderId)
+                        if (orderId != null) {
+                            NewOrderOverlay.dismissFor(orderId)
+                            NewOrderNotifier.cancel(applicationContext, orderId)
                         }
-                        "dismissOrderAlert" -> {
-                            NewOrderNotifier.dismiss(
-                                applicationContext,
-                                call.argument<String>("orderId"),
+                        result.success(true)
+                    }
+                    "startAlertSound" -> {
+                        val orderId = call.argument<String>("orderId") ?: "new_order"
+                        val ringMillis = (call.argument<Number>("ringMillis")?.toLong()) ?: 45000L
+                        NewOrderRingtone.start(applicationContext, orderId, ringMillis)
+                        result.success(true)
+                    }
+                    "stopAlertSound" -> {
+                        NewOrderRingtone.stop(call.argument<String>("orderId"))
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, OVERLAY_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    // Whatever order the overlay handed us, consumed exactly
+                    // once. Cleared on read so a configuration change or a
+                    // second resume cannot re-raise an order already answered.
+                    "consumeLaunchOrder" -> {
+                        val orderId = intent?.getStringExtra(NewOrderOverlay.EXTRA_ORDER_ID)
+                        if (orderId.isNullOrBlank()) {
+                            result.success(null)
+                        } else {
+                            val autoAccept =
+                                intent.getBooleanExtra(NewOrderOverlay.EXTRA_AUTO_ACCEPT, false)
+                            intent.removeExtra(NewOrderOverlay.EXTRA_ORDER_ID)
+                            intent.removeExtra(NewOrderOverlay.EXTRA_AUTO_ACCEPT)
+                            result.success(
+                                mapOf("orderId" to orderId, "autoAccept" to autoAccept)
                             )
-                            result.success(true)
                         }
-                        "startAlertSound" -> {
-                            val orderId = call.argument<String>("orderId") ?: "new_order"
-                            val ringMillis = (call.argument<Number>("ringMillis")?.toLong()) ?: 45000L
-                            NewOrderRingtone.start(applicationContext, orderId, ringMillis)
-                            result.success(true)
-                        }
-                        "stopAlertSound" -> {
-                            NewOrderRingtone.stop(call.argument<String>("orderId"))
-                            result.success(true)
-                        }
-                        else -> result.notImplemented()
                     }
+                    // Rejections tapped on the overlay. That process cannot read
+                    // the encrypted auth token, so it queues the id and the app
+                    // reports it the moment it next runs.
+                    "takePendingRejections" -> {
+                        val prefs = getSharedPreferences(
+                            NewOrderOverlay.REJECT_PREFS, Context.MODE_PRIVATE
+                        )
+                        val queued = prefs.getStringSet(NewOrderOverlay.REJECT_KEY, emptySet())
+                        prefs.edit().remove(NewOrderOverlay.REJECT_KEY).apply()
+                        result.success(queued?.toList() ?: emptyList<String>())
+                    }
+                    "hasOverlayPermission" ->
+                        result.success(NewOrderOverlay.canDrawOverlay(this))
+                    "requestOverlayPermission" -> {
+                        result.success(
+                            startActivitySafely(
+                                Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:$packageName"),
+                                )
+                            )
+                        )
+                    }
+                    // The in-app card is showing, or the order is gone — either
+                    // way the floating copy must not outlive it.
+                    "dismissOverlay" -> {
+                        NewOrderOverlay.dismiss()
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
                 }
             }
 
@@ -223,24 +254,26 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        if (PendingOrderAction.hasPending()) {
-            actionChannel?.invokeMethod("onOrderAction", PendingOrderAction.consume())
-        }
-        val incomingId = intent.getStringExtra(NewOrderNotifier.EXTRA_ORDER_ID)
-            ?: intent.getStringExtra("orderId")
-        if (!incomingId.isNullOrBlank()) {
-            pendingIncomingOrderId = incomingId
-            actionChannel?.invokeMethod("onIncomingOrder", mapOf("orderId" to incomingId))
-        }
+    override fun onResume() {
+        super.onResume()
+        AppForeground.isForeground = true
+        // The app is in front, so the in-app alert owns the screen — no
+        // floating card, and above all no native ringtone, may outlive that.
+        NewOrderOverlay.dismiss()
     }
 
-    override fun onDestroy() {
-        PendingOrderAction.listener = null
-        actionChannel = null
-        super.onDestroy()
+    override fun onPause() {
+        super.onPause()
+        AppForeground.isForeground = false
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // launchMode is singleTop, so tapping the overlay while the app is
+        // already running delivers here instead of through onCreate. Without
+        // this the activity would keep serving the intent it started with and
+        // the newly tapped order would never be seen.
+        setIntent(intent)
     }
 
     private fun unlockScreen() {

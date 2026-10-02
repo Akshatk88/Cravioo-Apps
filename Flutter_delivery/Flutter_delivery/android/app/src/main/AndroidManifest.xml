@@ -6,7 +6,6 @@
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <!--
@@ -19,6 +18,13 @@
     -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <!--
+        Draws the incoming-order card on top of whatever the rider is using.
+        Android grants this only by hand (Settings > Display over other apps) and
+        Play Console requires a justification: a rider has seconds to answer an
+        offer, and the alternative — a notification — is capped at ~256dp by the
+        platform and cannot show the order.
+    -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <application
         android:label="Cravioo Delivery"
@@ -89,7 +95,7 @@
         </service>
 
         <receiver
-            android:name=".NewOrderActionReceiver"
+            android:name=".RejectOrderReceiver"
             android:exported="false" />
     </application>
     <!-- Required to query activities that can process text, see:

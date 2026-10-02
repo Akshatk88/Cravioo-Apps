@@ -57,7 +57,6 @@ dependencies:
   android_play_install_referrer: ^0.4.0
   shared_preferences: ^2.5.5
   confetti: ^0.8.0
-  flutter_overlay_window: ^0.5.0
   android_intent_plus: ^6.1.0
   connectivity_plus: ^7.3.1
   google_fonts: ^8.2.0

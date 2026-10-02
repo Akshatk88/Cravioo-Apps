@@ -102,6 +102,7 @@ object NewOrderNotifier {
     /** Take the alert down and stop the ring — order taken elsewhere, or cancelled. */
     fun dismiss(context: Context, orderId: String?) {
         NewOrderRingtone.stop(orderId)
+        NewOrderOverlay.dismissFor(orderId)
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         try {
             manager.cancel(notificationId(orderId))
