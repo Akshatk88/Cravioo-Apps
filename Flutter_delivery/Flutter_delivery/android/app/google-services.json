@@ -1,0 +1,68 @@
+{
+  "project_info": {
+    "project_number": "43975359947",
+    "firebase_url": "https://cravioo-dc6f2-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "cravioo-dc6f2",
+    "storage_bucket": "cravioo-dc6f2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:43975359947:android:b956e6bfaaa96f0e10ca4e",
+        "android_client_info": {
+          "package_name": "com.cravioo.delivery"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC-y1BzyqQ-LOEicca8cccWKJ4iws2EzAg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:43975359947:android:142fc3e4f64bc01610ca4e",
+        "android_client_info": {
+          "package_name": "com.cravioo.restaurant"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC-y1BzyqQ-LOEicca8cccWKJ4iws2EzAg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:43975359947:android:c84a8dbd424533c310ca4e",
+        "android_client_info": {
+          "package_name": "com.cravioo.user"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC-y1BzyqQ-LOEicca8cccWKJ4iws2EzAg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

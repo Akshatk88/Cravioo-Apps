@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="offer_pickup_label">PICKUP</string>
+    <string name="offer_drop_label">DROP</string>
+    <string name="offer_drop_label_with_distance">DROP · %1$s km trip</string>
+    <string name="offer_decline">Decline</string>
+    <string name="offer_vehicle_icon_description">Your vehicle</string>
+    <string name="offer_vehicle_default">Bike</string>
+    <string name="offer_fare_format">₹%1$s</string>
+    <string name="offer_pickup_distance_format">%1$s km from pickup</string>
+    <string name="offer_pickup_distance_unknown">Pickup nearby</string>
+    <string name="offer_pickup_fallback">Restaurant</string>
+    <string name="offer_drop_fallback">Customer</string>
+    <string name="offer_accept_format">Accept · %1$ds</string>
+    <string name="offer_expires_format">%1$ds left</string>
+</resources>

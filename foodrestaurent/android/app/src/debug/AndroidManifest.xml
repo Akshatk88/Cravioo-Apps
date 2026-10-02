@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!--
+            DEBUG ONLY: lets the new-order alert be raised from adb so the
+            notification, its Accept/Reject buttons and the looping ringtone can be
+            verified without depending on FCM delivery. Absent from release builds.
+        -->
+        <receiver
+            android:name=".NewOrderDebugReceiver"
+            android:exported="true" />
+    </application>
+</manifest>

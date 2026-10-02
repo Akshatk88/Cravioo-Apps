@@ -1,0 +1,258 @@
+{
+  "appName": "Fudron",
+  "exitMessage": "Hello {user}",
+  "home": "Home",
+  "search": "Search",
+  "cart": "Cart",
+  "orders": "Orders",
+  "profile": "Profile",
+  "add": "ADD",
+  "addToCart": "Add to Cart",
+  "addItems": "Add Items",
+  "viewCart": "View Cart",
+  "checkout": "Checkout",
+  "placeOrder": "Place Order",
+  "proceedToPayment": "Proceed to Payment",
+  "totalPaid": "Total Paid",
+  "billDetails": "Bill Details",
+  "itemTotal": "Item Total",
+  "deliveryFee": "Delivery Fee",
+  "platformFee": "Platform Fee",
+  "taxesAndCharges": "GST / Taxes",
+  "discount": "Discount",
+  "couponDiscount": "Coupon Discount",
+  "walletDiscount": "Wallet Discount",
+  "packingCharges": "Packing Charges",
+  "tip": "Tip",
+  "ratings": "Ratings",
+  "prepTime": "Prep Time",
+  "calories": "Calories",
+  "orderPlaced": "Order placed!",
+  "orderConfirmed": "Order confirmed!",
+  "trackOrder": "Track Order",
+  "continueShopping": "Continue Shopping",
+  "reorderItems": "Reorder these items",
+  "deliveryAddress": "Delivering to",
+  "cookingRequests": "Cooking requests",
+  "replaceCart": "Replace Cart?",
+  "store99": "149 Meals",
+  "dining": "Dining",
+  "loginTitleNewUser": "Complete your Profile",
+  "loginTitleExisting": "Enter your phone number",
+  "loginSubtitleNewUser": "Enter your name to register your account with +91 {phone}",
+  "loginSubtitleExisting": "We will send a 4-digit verification code to verify your phone number.",
+  "fullNameHint": "Full Name (Required)",
+  "emailHintOptional": "Email Address (Optional)",
+  "alreadyRegistered": "Already registered? ",
+  "newToFudron": "New to Fudron? ",
+  "signIn": "Sign In",
+  "createAccount": "Create Account",
+  "continueAndSendOtp": "Continue & Send OTP",
+  "continueLabel": "Continue",
+  "agreeToTermsPrefix": "By continuing, you agree to our ",
+  "termsOfService": "Terms of Service",
+  "privacyPolicy": "Privacy Policy",
+  "orDivider": "OR",
+  "continueAsGuest": "Continue as Guest",
+  "language": "Language",
+  "english": "English",
+  "hindi": "Hindi",
+  "restaurantsNearYou": "RESTAURANTS",
+  "popularBrands": "POPULAR BRANDS",
+  "restaurantsDeliveringToYou": "{count} RESTAURANTS DELIVERING TO YOU",
+  "searchHint": "Search for 'Pizza', 'Burger', 'Fries'...",
+  "viewAll": "View All",
+  "pillTrending": "Trending",
+  "pillNow": "Now",
+  "pillStore": "Store",
+  "pillBuy1Get1": "Buy 1 Get 1",
+  "pillFree": "Free",
+  "pillFreeCaps": "FREE",
+  "pillDelivery": "Delivery",
+  "pillPureVeg": "Pure Veg",
+  "pillNearYou": "Near You",
+  "myCart": "My Cart",
+  "savedAddresses": "Saved Addresses",
+  "addNewAddress": "Add New Address",
+  "wallet": "Wallet",
+  "coupons": "Coupons",
+  "favorites": "Favorites",
+  "myOrders": "My Orders",
+  "logout": "Logout",
+  "selectPaymentMethod": "Select Payment Method",
+  "totalPayableAmount": "Total Payable Amount: {amount}",
+  "onlinePayment": "Online Payment (UPI, Cards, NetBanking)",
+  "cashOnDelivery": "Cash on Delivery (COD)",
+  "fudronWallet": "Fudron Wallet",
+  "change": "Change",
+  "activeOrders": "Active Orders",
+  "pastOrders": "Past Orders",
+  "profileSubtitle": "Manage your account, orders & preferences",
+  "guestUser": "Guest User",
+  "loginPromptOrders": "Log in to unlock orders, addresses & rewards",
+  "loginPromptDetails": "Sign in to access your orders, saved addresses & profile details.",
+  "loginSignUp": "LOG IN / SIGN UP",
+  "notificationsAndAlerts": "Notifications & Alerts",
+  "pushAlertsSubtitle": "Push alerts & promo settings",
+  "vegMode": "Veg Mode",
+  "vegModeSubtitle": "Show only vegetarian food items",
+  "appearanceSettings": "Appearance Settings",
+  "themeMode": "Theme: {mode} mode",
+  "appTheme": "App Theme",
+  "favoritesSubtitle": "Your favorite restaurants & dishes",
+  "viewAllOrders": "View All Orders",
+  "upcoming": "Upcoming",
+  "completed": "Completed",
+  "cancelled": "Cancelled",
+  "refunds": "Refunds",
+  "referAndEarn": "Refer & Earn",
+  "helpAndSupport": "Help & Support",
+  "helpSupportSubtitle": "FAQs, order refund status & 24/7 support",
+  "rateApp": "Rate App",
+  "rateAppSubtitle": "Love our app? Leave us a 5-star rating",
+  "shareApp": "Share App",
+  "shareAppSubtitle": "Share Cravioo food delivery app with friends",
+  "logOut": "Log Out",
+  "logOutConfirm": "Are you sure you want to log out of your account?",
+  "loggedOutSuccess": "Logged out successfully",
+  "cancelLabel": "Cancel",
+  "deleteAccount": "Delete Account",
+  "editProfile": "Edit Profile",
+  "logInToAccount": "Log In to Account",
+  "unlocksAfterOrders": "Unlocks after 3 orders",
+  "viewBalance": "View Balance",
+  "emptyCart": "Your cart is empty",
+  "noRestaurantsFound": "No restaurants found",
+  "somethingWentWrong": "Something went wrong",
+  "pleaseSelectAddress": "Please select an address",
+  "confirm": "Confirm",
+  "retry": "Retry",
+  "save": "Save",
+  "activeCoupons": "{count} Active",
+  "payLaterDue": "Due: {amount}",
+  "payLaterAvailable": "Available: {amount}",
+  "payLater": "Pay Later",
+  "clearDueToUseAgain": "Clear your {amount} due to use this again",
+  "availableCreditPayNextTime": "Available credit: {amount} · pay next time",
+  "paySecurelyRazorpay": "Pay securely via Razorpay payment gateway",
+  "payInCashOnDelivery": "Pay in cash when your food is delivered",
+  "grandTotal": "Grand Total",
+  "addMoney": "Add Money",
+  "inclTaxes": "Incl. taxes",
+  "gstLabel": "GST",
+  "taxesLabel": "Taxes",
+  "couldNotCalculateBill": "Could not calculate bill. Please try again.",
+  "addDeliveryAddressToProceed": "Add a delivery address to place your order.",
+  "pleaseSelectDeliveryAddress": "Please select a delivery address to proceed.",
+  "couldNotLoadAddress": "Could not load your saved address. Check your connection and try again.",
+  "insufficientWalletBalance": "Insufficient wallet balance ({balance}). Need {needed}.",
+  "cookingRequestHint": "e.g. Make it less spicy, no onions...",
+  "saveRequest": "Save Request",
+  "editRequest": "Edit request",
+  "cookingRequest": "Cooking request",
+  "cartEmptySubtitle": "Looks like you haven't added anything\nto your cart yet.",
+  "startShopping": "Start Shopping",
+  "explorePopularCategories": "Explore popular categories",
+  "categoryMeals": "Meals",
+  "categoryPizza": "Pizza",
+  "categoryDesserts": "Desserts",
+  "categoryBeverages": "Beverages",
+  "exclusiveOffers": "Exclusive offers!",
+  "exclusiveOffersSubtitle": "Grab the best deals and save more.",
+  "activeOrdersCount": "Active Orders ({count})",
+  "pastOrdersCount": "Past Orders ({count})",
+  "notificationsSubtitle": "Push alerts & promo settings",
+  "savedCount": "{count} Saved",
+  "@savedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "appearanceThemeMode": "Theme: {mode} mode",
+  "@appearanceThemeMode": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
+  "referralSubtitle": "Code: {code} • Share & earn ₹100",
+  "@referralSubtitle": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "helpSupport": "Help & Support",
+  "cancel": "Cancel",
+  "orderStatusAlerts": "Order Status & Delivery Alerts",
+  "promoAlerts": "Promotional Offers & Discounts",
+  "soundHapticAlerts": "App Sound & Haptic Alerts",
+  "pickBrandColor": "Pick your favorite brand color",
+  "selectLanguage": "Select Language",
+  "deleteAccountConfirm": "This will permanently delete your account and all data. This cannot be undone.",
+  "logOutMessage": "Are you sure you want to log out of your account?",
+  "deleteAccountMessage": "This permanently deletes your account, orders, addresses, wallet balance and saved data. This cannot be undone.",
+  "typeDeleteToConfirm": "Type DELETE to confirm",
+  "required": "REQUIRED",
+  "optional": "OPTIONAL",
+  "chooseSize": "Choose Size",
+  "selectOneOption": "Select 1 option",
+  "includedLabel": "Included",
+  "addExtras": "Add Extras",
+  "selectAnyYouLike": "Select any that you like",
+  "addToCartAmount": "Add to Cart • {amount}",
+  "@addToCartAmount": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "updateCartAmount": "Update Cart • {amount}",
+  "@updateCartAmount": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "ordersSubtitle": "Track, view and reorder your food",
+  "orderIdLabel": "Order ID: {id}",
+  "@orderIdLabel": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "reorder": "REORDER",
+  "trackOrderUpper": "TRACK ORDER",
+  "orderedAtLabel": "Ordered: {time}",
+  "@orderedAtLabel": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "billTotalLabel": "Bill Total: ",
+  "statusDelivered": "Delivered",
+  "cancelledByRestaurant": "Cancelled by restaurant",
+  "cancelledByYou": "Cancelled by you",
+  "onTheWay": "On the Way",
+  "filterAll": "All",
+  "filterDelivered": "Delivered",
+  "filterCancelled": "Cancelled",
+  "itemCountPlural": "{count, plural, =1{1 item} other{{count} items}}",
+  "@itemCountPlural": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
+}

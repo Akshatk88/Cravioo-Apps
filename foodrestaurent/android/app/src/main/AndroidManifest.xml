@@ -1,0 +1,123 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- Full-screen incoming-order alert. Without this the notification silently
+         degrades to a normal heads-up banner and never takes over the lock screen. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <!-- Lets the full-screen alert wake the screen rather than waiting for the
+         restaurant to pick the phone up. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- Lets the app prompt the restaurant to exempt itself from Doze/App
+         Standby battery optimization, which on some OEMs (Xiaomi, Vivo, Oppo)
+         otherwise blocks the app's process from being started to show the
+         new-order alert when the app is killed. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <application
+        android:label="Cravioo Restaurent"
+        android:name="${applicationName}"
+        android:icon="@mipmap/launcher_icon">
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="AIzaSyCLHQKJg5shpKs0uNiDHiZJTtBUMKl21ak" />
+        <!-- Must match the Android notification channel id created in
+             LocalNotificationService and the channel_id the backend sends
+             in FCM payloads (Backend/src/core/notifications/firebase.service.js) -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="default" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@mipmap/launcher_icon" />
+        <!--
+            Delivers notification action taps that do NOT launch the app.
+
+            This is why Reject did nothing while Accept worked. Accept is declared
+            with showsUserInterface: true, so Android routes it through MainActivity
+            and it reaches the app the normal way. Reject is showsUserInterface:
+            false by design — declining an order should not drag the restaurant out
+            of whatever they were doing — so the OS hands it to this receiver
+            instead, and without the receiver declared there was nothing to hand it
+            to. The press was accepted, the notification dismissed
+            (cancelNotification: true), and the order was never rejected.
+
+            flutter_local_notifications ships its scheduled-notification receivers
+            in its own manifest but deliberately not this one: it must be declared
+            by the app, because handling background actions is opt-in.
+        -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
+            android:exported="false" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <!--
+            android:priority="1" is load-bearing.
+
+            Android hands the MESSAGING_EVENT filter to exactly ONE service. The
+            firebase_messaging plugin declares its own with no priority, so without
+            this the winner is undefined — and if the plugin wins, this service never
+            runs and the new-order alert silently never appears.
+
+            Because it extends the plugin's service and calls super, winning costs
+            nothing: Dart still receives every push it did before.
+        -->
+        <service
+            android:name=".NewOrderMessagingService"
+            android:exported="false"
+            android:directBootAware="false">
+            <intent-filter android:priority="1">
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!--
+            Receives Accept/Reject pressed on the notification. exported="false"
+            because only our own PendingIntents target it — an exported receiver here
+            would let any app on the device accept or reject the restaurant's orders.
+        -->
+        <receiver
+            android:name=".NewOrderActionReceiver"
+            android:exported="false" />
+
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+    </queries>
+</manifest>
