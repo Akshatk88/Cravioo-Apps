@@ -38,9 +38,7 @@ class _OrderDetailsScreenState extends ConsumerState<OrderDetailsScreen> {
   }
 
   Future<void> _load() async {
-    // Fast path: the order is very likely already sitting in the live-orders
-    // cache (socket/FCM just refreshed it) — avoids a spinner for the common
-    // case of tapping a notification while the app is warm.
+    // Fast path: if order is in cache, display immediately so UI doesn't flicker
     final cached = ref.read(liveOrdersControllerProvider).value;
     final match = cached?.where(
       (o) => o.id == widget.orderId || o.displayId == widget.orderId,
@@ -50,6 +48,8 @@ class _OrderDetailsScreenState extends ConsumerState<OrderDetailsScreen> {
         _order = match.first;
         _loading = false;
       });
+      // Always fetch fresh full order details in the background so items/billing hydrate
+      _fetchFresh(widget.orderId);
       return;
     }
 
@@ -57,10 +57,14 @@ class _OrderDetailsScreenState extends ConsumerState<OrderDetailsScreen> {
       _loading = true;
       _error = null;
     });
+    await _fetchFresh(widget.orderId);
+  }
+
+  Future<void> _fetchFresh(String orderId) async {
     try {
       final order = await ref
           .read(orderRepositoryProvider)
-          .getById(widget.orderId);
+          .getById(orderId);
       if (!mounted) return;
       setState(() {
         _order = order;
@@ -68,10 +72,12 @@ class _OrderDetailsScreenState extends ConsumerState<OrderDetailsScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _error = e;
-        _loading = false;
-      });
+      if (_order == null) {
+        setState(() {
+          _error = e;
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -88,7 +94,12 @@ class _OrderDetailsScreenState extends ConsumerState<OrderDetailsScreen> {
           .updateStatus(order.id, newStatus);
       await ref.read(liveOrdersControllerProvider.notifier).refresh();
       if (!mounted) return;
-      setState(() => _order = updated);
+      if (updated.items.isNotEmpty) {
+        setState(() => _order = updated);
+      } else {
+        setState(() => _order = order.copyWith(orderStatus: newStatus));
+        _fetchFresh(widget.orderId);
+      }
     } catch (e) {
       if (!mounted) return;
       final message = e is ApiException
@@ -102,13 +113,44 @@ class _OrderDetailsScreenState extends ConsumerState<OrderDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<AsyncValue<List<OrderModel>>>(
+      liveOrdersControllerProvider,
+      (previous, next) {
+        final list = next.value;
+        if (list == null) return;
+        final match = list.where(
+          (o) => o.id == widget.orderId || o.displayId == widget.orderId,
+        );
+        if (match.isNotEmpty) {
+          final liveOrder = match.first;
+          if (_order == null ||
+              liveOrder.orderStatus != _order!.orderStatus ||
+              (liveOrder.items.isNotEmpty && _order!.items.isEmpty) ||
+              liveOrder.hasRider != _order!.hasRider) {
+            setState(() {
+              _order = liveOrder.items.isNotEmpty
+                  ? liveOrder
+                  : _order?.copyWith(
+                      orderStatus: liveOrder.orderStatus,
+                      riderName: liveOrder.riderName,
+                      riderPhone: liveOrder.riderPhone,
+                    ) ?? liveOrder;
+            });
+            if (liveOrder.items.isEmpty) {
+              _fetchFresh(widget.orderId);
+            }
+          }
+        }
+      },
+    );
+
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
         elevation: 0,
         title: Text(
-          _order != null ? 'Order FOD-${_order!.displayId}' : 'Order Details',
+          _order != null ? 'Order ${_order!.formattedDisplayId}' : 'Order Details',
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -466,7 +508,7 @@ class _StatusHeaderCard extends StatelessWidget {
           Row(
             children: [
               Text(
-                'FOD-${order.displayId}',
+                order.formattedDisplayId,
                 style: const TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w900,

@@ -163,14 +163,23 @@ class OrderModel {
     return OrderModel(
       id: (json['_id'] ?? json['orderMongoId'] ?? '').toString(),
       displayId: (json['order_id'] ?? json['orderId'] ?? '').toString(),
-      customerName: (json['customerName'] ?? userMap?['name'] ?? 'Customer')
+      customerName: (json['customerName'] ??
+              json['userName'] ??
+              userMap?['name'] ??
+              deliveryAddress['recipientName'] ??
+              deliveryAddress['name'] ??
+              'Customer')
           .toString(),
-      customerPhone: (json['customerPhone'] ?? userMap?['phone'] ?? '')
+      customerPhone: (json['customerPhone'] ??
+              json['userPhone'] ??
+              userMap?['phone'] ??
+              deliveryAddress['phone'] ??
+              '')
           .toString(),
       items: items,
       deliveryAddress: DeliveryAddressModel.fromJson(deliveryAddress),
       pricing: OrderPricingModel.fromJson(pricing),
-      total: asNum(pricing['total'])?.toDouble() ?? 0,
+      total: asNum(json['total'] ?? pricing['total'])?.toDouble() ?? 0,
       paymentMethod: (payment['method'] ?? '').toString(),
       paymentStatus: (payment['status'] ?? '').toString(),
       orderStatus: (json['orderStatus'] ?? json['status'] ?? '').toString(),
@@ -218,6 +227,65 @@ class OrderModel {
   final String deliveryInstructions;
   final DateTime? acceptanceDeadlineAt;
   final DateTime createdAt;
+
+  String get formattedDisplayId {
+    final clean = displayId.trim();
+    if (clean.isEmpty) return id;
+    if (clean.toUpperCase().startsWith('FOD-')) return clean;
+    return 'FOD-$clean';
+  }
+
+  OrderModel copyWith({
+    String? id,
+    String? displayId,
+    String? customerName,
+    String? customerPhone,
+    List<OrderItemModel>? items,
+    DeliveryAddressModel? deliveryAddress,
+    OrderPricingModel? pricing,
+    double? total,
+    String? paymentMethod,
+    String? paymentStatus,
+    String? orderStatus,
+    String? dispatchStatus,
+    String? riderName,
+    String? riderPhone,
+    double? riderRating,
+    String? cancelledBy,
+    String? cancellationReason,
+    bool? sendCutlery,
+    String? note,
+    String? deliveryInstructions,
+    DateTime? acceptanceDeadlineAt,
+    DateTime? createdAt,
+    Map<String, DateTime>? statusTimes,
+  }) {
+    return OrderModel(
+      id: id ?? this.id,
+      displayId: displayId ?? this.displayId,
+      customerName: customerName ?? this.customerName,
+      customerPhone: customerPhone ?? this.customerPhone,
+      items: items ?? this.items,
+      deliveryAddress: deliveryAddress ?? this.deliveryAddress,
+      pricing: pricing ?? this.pricing,
+      total: total ?? this.total,
+      paymentMethod: paymentMethod ?? this.paymentMethod,
+      paymentStatus: paymentStatus ?? this.paymentStatus,
+      orderStatus: orderStatus ?? this.orderStatus,
+      dispatchStatus: dispatchStatus ?? this.dispatchStatus,
+      riderName: riderName ?? this.riderName,
+      riderPhone: riderPhone ?? this.riderPhone,
+      riderRating: riderRating ?? this.riderRating,
+      cancelledBy: cancelledBy ?? this.cancelledBy,
+      cancellationReason: cancellationReason ?? this.cancellationReason,
+      sendCutlery: sendCutlery ?? this.sendCutlery,
+      note: note ?? this.note,
+      deliveryInstructions: deliveryInstructions ?? this.deliveryInstructions,
+      acceptanceDeadlineAt: acceptanceDeadlineAt ?? this.acceptanceDeadlineAt,
+      createdAt: createdAt ?? this.createdAt,
+      statusTimes: statusTimes ?? this.statusTimes,
+    );
+  }
 
   bool get isAllVeg => items.isNotEmpty && items.every((item) => item.isVeg);
   bool get isCancelled => orderStatus.startsWith('cancelled');

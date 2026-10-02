@@ -130,7 +130,7 @@ class _LiveOrderCardState extends ConsumerState<LiveOrderCard> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '#FOD-${widget.order.displayId}',
+                      '#${widget.order.formattedDisplayId}',
                       style: TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 16,

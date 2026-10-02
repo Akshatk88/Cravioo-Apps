@@ -502,7 +502,7 @@ class _IncomingOrderDialogState extends ConsumerState<IncomingOrderDialog> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'FOD-${order.displayId}',
+                      order.formattedDisplayId,
                       style: const TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 13,
