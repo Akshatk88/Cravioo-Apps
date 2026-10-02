@@ -58,9 +58,11 @@ class AuthController extends Notifier<AuthState> {
   }
 
   Future<void> verifyOtp({required String phone, required String otp}) async {
+    final fcm = ref.read(fcmServiceProvider);
+    await fcm.requestPermission();
     String? fcmToken;
     try {
-      fcmToken = await ref.read(fcmServiceProvider).currentToken();
+      fcmToken = await fcm.currentToken();
     } catch (_) {
       fcmToken = null;
     }
@@ -107,8 +109,6 @@ class AuthController extends Notifier<AuthState> {
         .saveTokens(accessToken: accessToken, refreshToken: refreshToken);
 
     await _loadCurrentRestaurantAndSetState();
-    final fcm = ref.read(fcmServiceProvider);
-    await fcm.requestPermission();
     await fcm.saveTokenToServer();
   }
 

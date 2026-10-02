@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:dio/dio.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:food_user_application/config/constants/app_constants.dart';
 
 const orderAcceptActionId = 'accept_order';
@@ -85,7 +86,13 @@ Future<bool> submitOrderDecision({
 
   try {
     const storage = FlutterSecureStorage();
-    final token = await storage.read(key: 'access_token');
+    String? token = await storage.read(key: 'access_token');
+    if (token == null || token.isEmpty) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        token = prefs.getString('access_token');
+      } catch (_) {}
+    }
     if (token == null || token.isEmpty) return false;
 
     final dio = Dio(
@@ -96,15 +103,20 @@ Future<bool> submitOrderDecision({
         receiveTimeout: const Duration(seconds: 15),
       ),
     );
-    await dio.patch(
-      '/food/restaurant/orders/$orderId/status',
-      data: {'orderStatus': orderStatus},
-    );
-    return true;
+    try {
+      await dio.patch(
+        '/food/restaurant/orders/$orderId/status',
+        data: {'orderStatus': orderStatus},
+      );
+      return true;
+    } catch (_) {
+      await dio.patch(
+        '/api/v1/food/restaurant/orders/$orderId/status',
+        data: {'orderStatus': orderStatus},
+      );
+      return true;
+    }
   } catch (_) {
-    // Best-effort — this may be running in an isolate with no UI to surface a retry.
-    // The token read is inside the try because it is a plugin call and can throw, and
-    // an uncaught throw here takes the isolate down mid-action.
     return false;
   }
 }

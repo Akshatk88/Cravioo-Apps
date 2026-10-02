@@ -39,7 +39,53 @@ class NewOrderActionReceiver : BroadcastReceiver() {
 
         PendingOrderAction.set(orderId = orderId, accepted = accepted)
 
-        // Only Accept opens the app.
+        // Fire background HTTP request to update backend status immediately (both Accept and Reject)
+        val targetStatus = if (accepted) "confirmed" else "cancelled_by_restaurant"
+        val pendingResult = goAsync()
+        Thread {
+            try {
+                val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                var token = prefs.getString("flutter.access_token", null)
+                if (token.isNullOrBlank()) {
+                    token = prefs.getString("access_token", null)
+                }
+                if (!token.isNullOrBlank()) {
+                    val urls = listOf(
+                        "https://cravioo.in/api/v1/food/restaurant/orders/$orderId/status",
+                        "https://cravioo.in/food/restaurant/orders/$orderId/status"
+                    )
+                    for (urlString in urls) {
+                        try {
+                            val url = java.net.URL(urlString)
+                            val conn = url.openConnection() as java.net.HttpURLConnection
+                            conn.requestMethod = "PATCH"
+                            conn.setRequestProperty("Authorization", "Bearer $token")
+                            conn.setRequestProperty("Content-Type", "application/json")
+                            conn.connectTimeout = 7000
+                            conn.readTimeout = 7000
+                            conn.doOutput = true
+                            val bodyJson = "{\"orderStatus\":\"$targetStatus\"}"
+                            conn.outputStream.use { os ->
+                                os.write(bodyJson.toByteArray())
+                            }
+                            val code = conn.responseCode
+                            Log.i(TAG, "Background restaurant $targetStatus order=$orderId httpCode=$code via $urlString")
+                            if (code in 200..299) break
+                        } catch (t: Throwable) {
+                            Log.w(TAG, "Request to $urlString failed: ${t.message}")
+                        }
+                    }
+                } else {
+                    Log.w(TAG, "No token found to update order=$orderId in background")
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Background order update failed for order=$orderId: ${t.message}")
+            } finally {
+                pendingResult.finish()
+            }
+        }.start()
+
+        // Only Accept opens the app with handled flag.
         if (accepted) {
             try {
                 val launch = context.packageManager
@@ -47,46 +93,13 @@ class NewOrderActionReceiver : BroadcastReceiver() {
                     ?.apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                         putExtra(NewOrderNotifier.EXTRA_ORDER_ID, orderId)
+                        putExtra("orderActionHandled", true)
+                        putExtra("accepted", true)
                     }
                 if (launch != null) context.startActivity(launch)
             } catch (t: Throwable) {
                 Log.w(TAG, "could not launch app after accept", t)
             }
-        } else {
-            // Reject: fire background HTTP request to update backend status immediately
-            val pendingResult = goAsync()
-            Thread {
-                try {
-                    val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-                    var token = prefs.getString("flutter.access_token", null)
-                    if (token.isNullOrBlank()) {
-                        val secPrefs = context.getSharedPreferences("FlutterSecureStorage", Context.MODE_PRIVATE)
-                        token = secPrefs.getString("VG9vbGtpdFNlY3VyZVN0b3JhZ2V_access_token", null)
-                    }
-                    if (!token.isNullOrBlank()) {
-                        val url = java.net.URL("https://cravioo.in/api/v1/food/restaurant/orders/$orderId/status")
-                        val conn = url.openConnection() as java.net.HttpURLConnection
-                        conn.requestMethod = "PATCH"
-                        conn.setRequestProperty("Authorization", "Bearer $token")
-                        conn.setRequestProperty("Content-Type", "application/json")
-                        conn.connectTimeout = 7000
-                        conn.readTimeout = 7000
-                        conn.doOutput = true
-                        val bodyJson = "{\"orderStatus\":\"cancelled_by_restaurant\"}"
-                        conn.outputStream.use { os ->
-                            os.write(bodyJson.toByteArray())
-                        }
-                        val code = conn.responseCode
-                        Log.i(TAG, "Background restaurant reject order=$orderId httpCode=$code")
-                    } else {
-                        Log.w(TAG, "No token found to reject order=$orderId in background")
-                    }
-                } catch (t: Throwable) {
-                    Log.w(TAG, "Background reject failed for order=$orderId: ${t.message}")
-                } finally {
-                    pendingResult.finish()
-                }
-            }.start()
         }
     }
 

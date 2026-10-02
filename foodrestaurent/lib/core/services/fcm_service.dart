@@ -277,21 +277,31 @@ class FcmService {
       final token = await currentToken();
       if (token == null || token.isEmpty) continue;
 
+      // 1. Try primary REST path /api/v1/fcm-tokens/mobile/save
       try {
-        await _dio.post('/fcm-tokens/mobile/save', data: {'token': token, 'platform': 'mobile'});
+        await _dio.post('/api/v1/fcm-tokens/mobile/save', data: {'token': token, 'platform': 'mobile'});
         lastRegistrationError = null;
-        if (kDebugMode) debugPrint('[FCM] token registered via /mobile/save');
+        if (kDebugMode) debugPrint('[FCM] token registered via /api/v1/fcm-tokens/mobile/save');
         return true;
-      } catch (e) {
+      } catch (e1) {
+        // 2. Try proxy path /food/fcm-tokens/mobile/save
         try {
-          await _dio.post('/fcm-tokens/save', data: {'token': token, 'platform': 'mobile'});
+          await _dio.post('/food/fcm-tokens/mobile/save', data: {'token': token, 'platform': 'mobile'});
           lastRegistrationError = null;
-          if (kDebugMode) debugPrint('[FCM] token registered via /save');
+          if (kDebugMode) debugPrint('[FCM] token registered via /food/fcm-tokens/mobile/save');
           return true;
         } catch (e2) {
-          lastRegistrationError = 'Token save failed: $e / $e2';
-          if (kDebugMode) {
-            debugPrint('[FCM] save attempt ${attempt + 1} failed: $e / $e2');
+          // 3. Fallback to /api/v1/fcm-tokens/save
+          try {
+            await _dio.post('/api/v1/fcm-tokens/save', data: {'token': token, 'platform': 'mobile'});
+            lastRegistrationError = null;
+            if (kDebugMode) debugPrint('[FCM] token registered via /api/v1/fcm-tokens/save');
+            return true;
+          } catch (e3) {
+            lastRegistrationError = 'Token save failed: $e1 / $e2 / $e3';
+            if (kDebugMode) {
+              debugPrint('[FCM] save attempt ${attempt + 1} failed: $e1 / $e2 / $e3');
+            }
           }
         }
       }
@@ -303,9 +313,11 @@ class FcmService {
     final token = await currentToken();
     if (token == null || token.isEmpty) return;
     try {
-      await _dio.delete('/fcm-tokens/remove', data: {'token': token});
+      await _dio.delete('/api/v1/fcm-tokens/remove', data: {'token': token});
     } catch (_) {
-      // Best-effort — logging out should proceed regardless.
+      try {
+        await _dio.delete('/food/fcm-tokens/remove', data: {'token': token});
+      } catch (_) {}
     }
   }
 
