@@ -175,26 +175,14 @@ class OrdersController extends Notifier<OrdersState> {
   }
 
   Future<void> _doRefreshAll() async {
+    final epoch = _acceptEpoch;
     if (state is OrdersInitial) state = const OrdersLoading();
-    final currentResult = await _repository.getCurrentOrder();
-    final DeliveryOrder? current = currentResult.when(
-      success: (order) => order,
-      failure: (_) => null,
-    );
-
-    if (current != null) {
-      final prev = state;
-      final previousCurrent = prev is OrdersLoaded ? prev.currentOrder : null;
-      final hydrated = await _hydrateOtpState(previousCurrent, current);
-      if (!_currentOrderChanged(previousCurrent, hydrated)) return;
-      state = OrdersLoaded(
-        availableOrders: prev is OrdersLoaded ? prev.availableOrders : const [],
-        currentOrder: hydrated,
-      );
-      return;
-    }
+    final activeResult = await _repository.getActiveOrders();
+    final active = activeResult.when(success: (r) => r, failure: (_) => null);
+    if (active != null && await _applyActiveOrders(active)) return;
 
     final availableResult = await _repository.getAvailableOrders();
+    if (epoch != _acceptEpoch) return; // an order was accepted meanwhile
     availableResult.when(
       success: (orders) {
         final readyOrders = orders.where((o) {
@@ -217,7 +205,9 @@ class OrdersController extends Notifier<OrdersState> {
   Future<void> _doRefreshAvailable() async {
     final prev = state;
     if (prev is OrdersLoaded && prev.hasActiveOrder) return;
+    final epoch = _acceptEpoch;
     final result = await _repository.getAvailableOrders();
+    if (epoch != _acceptEpoch) return; // an order was accepted meanwhile
     result.when(
       success: (orders) {
         final readyOrders = orders.where((o) {
@@ -236,22 +226,86 @@ class OrdersController extends Notifier<OrdersState> {
   }
 
   Future<void> _doRefreshCurrent() async {
-    final result = await _repository.getCurrentOrder();
+    final epoch = _acceptEpoch;
+    final result = await _repository.getActiveOrders();
     await result.when(
-      success: (order) async {
+      success: (active) async {
+        if (await _applyActiveOrders(active)) return;
+        // No active order on the server any more.
+        if (epoch != _acceptEpoch) return;
         final prev = state;
         final previousCurrent = prev is OrdersLoaded ? prev.currentOrder : null;
-        final hydrated = order != null
-            ? await _hydrateOtpState(previousCurrent, order)
-            : null;
-        if (!_currentOrderChanged(previousCurrent, hydrated)) return;
+        if (previousCurrent == null &&
+            (prev is! OrdersLoaded || prev.otherActiveOrders.isEmpty)) {
+          return;
+        }
         state = OrdersLoaded(
           availableOrders: prev is OrdersLoaded ? prev.availableOrders : const [],
-          currentOrder: hydrated,
+          currentOrder: null,
         );
       },
       failure: (_) async {},
     );
+  }
+
+  /// Applies the server's active orders. Keeps the trip the rider is on as the
+  /// current one while it is still active (a multi-order partner must not have
+  /// the map jump to another order on a poll); otherwise takes the server's
+  /// activeOrder. The rest wait in otherActiveOrders. Returns false when the
+  /// server reports no active order at all.
+  Future<bool> _applyActiveOrders(
+    ({DeliveryOrder? current, List<DeliveryOrder> all}) active,
+  ) async {
+    final prev = state;
+    final previousCurrent = prev is OrdersLoaded ? prev.currentOrder : null;
+
+    DeliveryOrder? pick;
+    if (previousCurrent != null) {
+      for (final o in active.all) {
+        if (o.id == previousCurrent.id) {
+          pick = o;
+          break;
+        }
+      }
+    }
+    pick ??= active.current ?? (active.all.isNotEmpty ? active.all.first : null);
+    if (pick == null) return false;
+
+    final hydrated = await _hydrateOtpState(previousCurrent, pick);
+    final others = active.all.where((o) => o.id != hydrated.id).toList();
+    final previousOthers =
+        prev is OrdersLoaded ? prev.otherActiveOrders : const <DeliveryOrder>[];
+    final othersChanged = previousOthers.length != others.length ||
+        Iterable<int>.generate(others.length).any(
+          (i) => _currentOrderChanged(previousOthers[i], others[i]),
+        );
+    if (!_currentOrderChanged(previousCurrent, hydrated) && !othersChanged) {
+      return true;
+    }
+    state = OrdersLoaded(
+      availableOrders: prev is OrdersLoaded ? prev.availableOrders : const [],
+      currentOrder: hydrated,
+      otherActiveOrders: others,
+    );
+    return true;
+  }
+
+  /// Multi-order partner: work on [orderId] now. The previous trip goes back
+  /// to the waiting list; nothing changes server-side.
+  void switchCurrentOrder(String orderId) {
+    final prev = state;
+    if (prev is! OrdersLoaded) return;
+    final index = prev.otherActiveOrders.indexWhere((o) => o.id == orderId);
+    if (index < 0) return;
+    final next = prev.otherActiveOrders[index];
+    final others = [...prev.otherActiveOrders]..removeAt(index);
+    if (prev.currentOrder != null) others.insert(0, prev.currentOrder!);
+    state = OrdersLoaded(
+      availableOrders: prev.availableOrders,
+      currentOrder: next,
+      otherActiveOrders: others,
+    );
+    ref.read(socketServiceProvider).joinTracking(next.id);
   }
 
   Future<Result<DeliveryOrder, AppError>> acceptOrder(String orderId) async {
@@ -260,15 +314,63 @@ class OrdersController extends Notifier<OrdersState> {
     unawaited(NewOrderActionChannel.dismiss(orderId));
     unawaited(dismissIncomingOrderAlert(orderId));
     final result = await _repository.accept(orderId);
-    result.when(
-      success: (order) {
-        state = OrdersLoaded(availableOrders: const [], currentOrder: order);
-        // Start live location sharing for this order (requirement: after accept).
-        ref.read(socketServiceProvider).joinTracking(order.id);
-      },
-      failure: (_) {},
+    final accepted = result.when(
+      success: (order) => order,
+      failure: (_) => null,
     );
+    if (accepted != null) {
+      _adoptAcceptedOrder(accepted);
+      return result;
+    }
+
+    // The accept can fail because it already went through: the overlay
+    // bubble sends its own accept before the app opens. If the server now
+    // has this order as our current trip, that is a success, not an error.
+    for (var attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) await Future<void>.delayed(const Duration(seconds: 1));
+      final current = await _repository.getCurrentOrder();
+      final order = current.when(success: (o) => o, failure: (_) => null);
+      if (order != null && order.id == orderId) {
+        _adoptAcceptedOrder(order);
+        return Result.success(order);
+      }
+    }
     return result;
+  }
+
+  /// Bumped on every accepted order. A refresh that started before the
+  /// accept compares it before writing, so its stale "no current order"
+  /// answer cannot wipe the trip that was just accepted (which dropped the
+  /// rider back on the home map after tapping Accept).
+  int _acceptEpoch = 0;
+
+  void _adoptAcceptedOrder(DeliveryOrder order) {
+    _acceptEpoch++;
+    final prev = state;
+    final current = prev is OrdersLoaded ? prev.currentOrder : null;
+    if (prev is OrdersLoaded && current != null && current.id != order.id) {
+      // Multi-order partner taking another order: the trip in progress stays
+      // on screen; the new one waits in the list until the rider switches to
+      // it or this trip ends.
+      state = OrdersLoaded(
+        availableOrders: const [],
+        currentOrder: current,
+        otherActiveOrders: [
+          ...prev.otherActiveOrders.where((o) => o.id != order.id),
+          order,
+        ],
+      );
+      ref.read(socketServiceProvider).joinTracking(order.id);
+      return;
+    }
+    state = OrdersLoaded(
+      availableOrders: const [],
+      currentOrder: order,
+      otherActiveOrders:
+          prev is OrdersLoaded ? prev.otherActiveOrders : const [],
+    );
+    // Start live location sharing for this order (requirement: after accept).
+    ref.read(socketServiceProvider).joinTracking(order.id);
   }
 
   Future<Result<DeliveryOrder, AppError>> rejectOrder(String orderId) async {
@@ -282,33 +384,76 @@ class OrdersController extends Notifier<OrdersState> {
   }
 
   Future<Result<DeliveryOrder, AppError>> reachedPickup(String orderId) =>
-      _mutateCurrent(() => _repository.reachedPickup(orderId));
+      _mutateCurrent(orderId, () => _repository.reachedPickup(orderId));
 
   Future<Result<DeliveryOrder, AppError>> confirmPickup(
     String orderId, {
     String? billImageUrl,
   }) => _mutateCurrent(
+    orderId,
     () => _repository.confirmPickup(orderId, billImageUrl: billImageUrl),
   );
 
   Future<Result<DeliveryOrder, AppError>> reachedDrop(String orderId) =>
-      _mutateCurrent(() => _repository.reachedDrop(orderId));
+      _mutateCurrent(orderId, () => _repository.reachedDrop(orderId));
 
   Future<Result<DeliveryOrder, AppError>> verifyDropOtp(
     String orderId,
     String otp,
-  ) => _mutateCurrent(() => _repository.verifyDropOtp(orderId, otp));
+  ) => _mutateCurrent(orderId, () => _repository.verifyDropOtp(orderId, otp));
+
+  /// The held order with [orderId], whether it is the one on screen or one of
+  /// the others a multi-order partner is carrying.
+  DeliveryOrder? _heldOrder(String orderId) {
+    final s = state;
+    if (s is! OrdersLoaded) return null;
+    if (s.currentOrder?.id == orderId) return s.currentOrder;
+    for (final o in s.otherActiveOrders) {
+      if (o.id == orderId) return o;
+    }
+    return null;
+  }
 
   Future<Result<DeliveryOrder, AppError>> completeOrder(String orderId) async {
-    final previousOrder =
-        state is OrdersLoaded ? (state as OrdersLoaded).currentOrder : null;
-    final result = await _repository.complete(orderId);
+    final previousOrder = _heldOrder(orderId);
+    // COD: the rider has just collected cash (CollectPaymentSheet). There is no
+    // separate collect/cash endpoint, so state it on /complete.
+    final isUnpaidCod = previousOrder != null &&
+        previousOrder.id == orderId &&
+        previousOrder.isCashOnDelivery &&
+        !previousOrder.isPaid;
+    final result = await _repository.complete(
+      orderId,
+      paymentMode: isUnpaidCod ? 'cash' : null,
+    );
     result.when(
       success: (_) {
         // Stop live location sharing for this order (requirement: after delivered).
         ref.read(socketServiceProvider).leaveTracking(orderId);
-        state = const OrdersLoaded(availableOrders: [], currentOrder: null);
-        refreshAvailable();
+        final prev = state;
+        final waiting = prev is OrdersLoaded
+            ? prev.otherActiveOrders.where((o) => o.id != orderId).toList()
+            : <DeliveryOrder>[];
+        final current = prev is OrdersLoaded ? prev.currentOrder : null;
+        if (current != null && current.id != orderId) {
+          // A side order was delivered: the trip on screen carries on.
+          state = OrdersLoaded(
+            availableOrders: const [],
+            currentOrder: current,
+            otherActiveOrders: waiting,
+          );
+        } else if (waiting.isNotEmpty) {
+          // Multi-order partner: the next accepted order becomes the trip.
+          state = OrdersLoaded(
+            availableOrders: const [],
+            currentOrder: waiting.first,
+            otherActiveOrders: waiting.sublist(1),
+          );
+          refreshCurrent();
+        } else {
+          state = const OrdersLoaded(availableOrders: [], currentOrder: null);
+          refreshAvailable();
+        }
         if (previousOrder != null && previousOrder.id == orderId) {
           ref
               .read(pendingCustomerRatingControllerProvider.notifier)
@@ -320,21 +465,55 @@ class OrdersController extends Notifier<OrdersState> {
     return result;
   }
 
+  /// Runs a step (reached pickup / confirm pickup / reached drop / OTP) for
+  /// [orderId] and updates ONLY that order.
+  ///
+  /// Most of these endpoints answer with a slim ack (id + orderStatus, no
+  /// deliveryState, restaurant, items or payment). Using that as the order wiped
+  /// its details ("0 items", no name) and its step, and with two orders held it
+  /// could land in the wrong slot. So the full order is re-read from
+  /// GET /orders/:id and put back in exactly the slot it came from; the other
+  /// order is never touched.
   Future<Result<DeliveryOrder, AppError>> _mutateCurrent(
+    String orderId,
     Future<Result<DeliveryOrder, AppError>> Function() action,
   ) async {
     final result = await action();
-    result.when(
-      success: (order) {
-        final prev = state;
-        state = OrdersLoaded(
-          availableOrders: prev is OrdersLoaded ? prev.availableOrders : const [],
-          currentOrder: order,
-        );
-      },
-      failure: (_) {},
-    );
-    return result;
+    final ack = result.when(success: (o) => o, failure: (_) => null);
+    if (ack == null) return result;
+
+    final details = await _repository.getOrderDetails(orderId);
+    final full = details.when(success: (o) => o, failure: (_) => null);
+    if (full == null) {
+      // Could not re-read it: keep what we had and let the poll catch up.
+      unawaited(refreshCurrent());
+      return Result.success(_heldOrder(orderId) ?? ack);
+    }
+
+    final prev = state;
+    if (prev is! OrdersLoaded) {
+      state = OrdersLoaded(availableOrders: const [], currentOrder: full);
+      return Result.success(full);
+    }
+    final current = prev.currentOrder;
+    if (current == null || current.id == orderId) {
+      state = OrdersLoaded(
+        availableOrders: prev.availableOrders,
+        currentOrder: full,
+        otherActiveOrders: prev.otherActiveOrders.where((o) => o.id != orderId).toList(),
+      );
+    } else {
+      final others = [
+        for (final o in prev.otherActiveOrders) o.id == orderId ? full : o,
+      ];
+      if (!others.any((o) => o.id == orderId)) others.add(full);
+      state = OrdersLoaded(
+        availableOrders: prev.availableOrders,
+        currentOrder: current,
+        otherActiveOrders: others,
+      );
+    }
+    return Result.success(full);
   }
 }
 

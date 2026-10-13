@@ -13,7 +13,7 @@ import 'app_colors.dart';
 /// brand palette. `teal` is the logo's second lead, offered as a first-class
 /// preset rather than a generic swatch.
 enum AppThemeColor {
-  fudron('Fudron', Color(0xFFE0007A), Color(0xFFF0158C), '🩷'),
+  fudron('Cravioo', Color(0xFFE0007A), Color(0xFFF0158C), '🩷'),
   teal('Teal', Color(0xFF00B5B8), Color(0xFF12CFD2), '🩵'),
   purple('Purple', Color(0xFF7B2D8E), Color(0xFF9B4FB0), '🟣'),
   green('Green', Color(0xFF16A34A), Color(0xFF22B85C), '🟢'),

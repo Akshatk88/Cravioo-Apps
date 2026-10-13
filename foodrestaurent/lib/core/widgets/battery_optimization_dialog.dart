@@ -46,7 +46,7 @@ class BatteryOptimizationDialog extends StatelessWidget {
             const SizedBox(height: 8),
             const Text(
               'Some phones stop apps running in the background to save '
-              'battery. Allow Fodron Restaurant to run in the background so '
+              'battery. Allow Cravioo Restaurant to run in the background so '
               "you always get the new-order alert, even when the app isn't "
               'open.',
               style: TextStyle(

@@ -148,25 +148,7 @@ class _HomeHeaderBannerState extends ConsumerState<HomeHeaderBanner> {
               child: _buildTopRow(context),
             ),
 
-            // ============================================================
-            // CAROUSEL PAGE INDICATOR
-            // ============================================================
-            Positioned(
-              bottom: 34.h,
-              left: 0,
-              right: 0,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(
-                  _slideImages.isEmpty ? 1 : _slideImages.length,
-                  (i) => _dot(
-                    i ==
-                        (_currentPage %
-                            (_slideImages.isEmpty ? 1 : _slideImages.length)),
-                  ),
-                ),
-              ),
-            ),
+            // Carousel page dots removed (not wanted in the app).
           ],
         ),
       ),
@@ -529,23 +511,4 @@ class _HomeHeaderBannerState extends ConsumerState<HomeHeaderBanner> {
   // CAROUSEL DOT
   // ========================================================================
 
-  Widget _dot(bool isActive) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-
-      margin: EdgeInsets.symmetric(horizontal: 3.w),
-
-      width: isActive ? 16.w : 6.w,
-
-      height: 6.h,
-
-      decoration: BoxDecoration(
-        color: isActive
-            ? AppColors.primary
-            : Colors.white.withValues(alpha: 0.5),
-
-        borderRadius: BorderRadius.circular(3.r),
-      ),
-    );
-  }
 }

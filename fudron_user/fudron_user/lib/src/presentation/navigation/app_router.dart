@@ -1,4 +1,5 @@
 // App Router Configuration
+import '../common_widgets/coming_soon_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -28,6 +29,7 @@ import '../orders/screens/order_details_screen.dart';
 import '../orders/screens/order_tracking_screen.dart';
 import '../orders/screens/order_success_screen.dart';
 import '../orders/screens/order_delivered_screen.dart';
+// ignore: unused_import (Refer & Earn is on "Coming soon" for now)
 import '../referral/screens/referral_screen.dart';
 import '../referral/screens/referral_ticket_result_screen.dart';
 import '../wallet/screens/wallet_screen.dart';
@@ -295,7 +297,9 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: RouteNames.referral,
         parentNavigatorKey: rootNavigatorKey,
-        builder: (context, state) => const ReferralScreen(),
+        // Refer & Earn is switched off for now: show "Coming soon".
+        // builder: (context, state) => const ReferralScreen(),
+        builder: (context, state) => const ComingSoonScreen(title: 'Refer & Earn'),
       ),
       GoRoute(
         path: RouteNames.referralTicket,

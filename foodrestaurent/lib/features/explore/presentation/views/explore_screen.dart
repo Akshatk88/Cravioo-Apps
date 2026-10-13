@@ -1,10 +1,10 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:food_user_application/config/theme/app_colors.dart';
-import 'package:food_user_application/core/network/api_exception.dart';
-import 'package:food_user_application/features/auth/presentation/controllers/auth_controller.dart';
+import 'package:food_user_application/core/widgets/account_actions.dart';
 import 'package:food_user_application/features/restaurant_profile/presentation/controllers/restaurant_profile_controller.dart';
 import 'package:food_user_application/config/theme/theme_mode_provider.dart';
 import 'package:food_user_application/core/widgets/app_drawer.dart';
@@ -107,6 +107,60 @@ class ExploreScreen extends ConsumerWidget {
                         context.push('/dining');
                       },
                     ),
+
+                    _buildVerticalCard(
+                      context: context,
+                      title: 'My outlets',
+                      subtitle: 'Switch, add &\nonboard outlets',
+                      icon: Icons.store_mall_directory_rounded,
+                      width: _getCardWidth(context, 2),
+                      onTap: () => context.push('/outlets'),
+                    ),
+
+                    _buildVerticalCard(
+                      context: context,
+                      title: 'Advertisements',
+                      subtitle: 'Promote with image,\nbanner or video ads',
+                      icon: Icons.campaign_outlined,
+                      width: _getCardWidth(context, 2),
+                      onTap: () => context.push('/advertisements'),
+                    ),
+
+                    _buildVerticalCard(
+                      context: context,
+                      title: 'Item slot timings',
+                      subtitle: 'Breakfast, lunch &\ndinner item slots',
+                      icon: Icons.schedule,
+                      width: _getCardWidth(context, 2),
+                      onTap: () => context.push('/item-slot-timings'),
+                    ),
+
+                    _buildVerticalCard(
+                      context: context,
+                      title: 'FSSAI license',
+                      subtitle: 'View and update\nyour food license',
+                      icon: Icons.verified_outlined,
+                      width: _getCardWidth(context, 2),
+                      onTap: () => context.push('/fssai'),
+                    ),
+
+                    _buildVerticalCard(
+                      context: context,
+                      title: 'Edit cuisines',
+                      subtitle: 'Up to 8 cuisines\nshown to customers',
+                      icon: Icons.restaurant_menu_rounded,
+                      width: _getCardWidth(context, 2),
+                      onTap: () => context.push('/edit-cuisines'),
+                    ),
+
+                    _buildVerticalCard(
+                      context: context,
+                      title: 'Refer & Earn',
+                      subtitle: 'Invite restaurants\nand earn rewards',
+                      icon: Icons.card_giftcard,
+                      width: _getCardWidth(context, 2),
+                      onTap: () => context.push('/refer-earn'),
+                    ),
                   ],
                 ),
 
@@ -204,6 +258,17 @@ class ExploreScreen extends ConsumerWidget {
                       onTap: () =>
                           context.push('/complaints', extra: 'reviews'),
                     ),
+
+                    _buildVerticalCard(
+                      context: context,
+                      title: 'Ratings overview',
+                      subtitle: 'Your rating and\nrating help',
+                      icon: Icons.star_rate_rounded,
+                      iconColor: AppColors.primaryDark,
+                      iconBgColor: AppColors.primaryTint,
+                      width: _getCardWidth(context, 3),
+                      onTap: () => context.push('/ratings-reviews'),
+                    ),
                   ],
                 ),
 
@@ -240,6 +305,60 @@ class ExploreScreen extends ConsumerWidget {
                       iconBgColor: AppColors.primaryTint,
                       width: _getCardWidth(context, 3),
                       onTap: () => context.push('/feedback'),
+                    ),
+
+                    _buildVerticalCard(
+                      context: context,
+                      title: 'Notification check',
+                      subtitle: 'Why alerts are\nnot arriving',
+                      icon: Icons.notifications_active_outlined,
+                      width: _getCardWidth(context, 3),
+                      onTap: () => context.push('/notification-check'),
+                    ),
+
+                    _buildVerticalCard(
+                      context: context,
+                      title: 'Help Centre',
+                      subtitle: 'Search help topics',
+                      icon: Icons.help_outline_rounded,
+                      width: _getCardWidth(context, 3),
+                      onTap: () => context.push('/help-centre'),
+                    ),
+
+                    _buildVerticalCard(
+                      context: context,
+                      title: 'Settings',
+                      subtitle: 'Theme, support\n& policies',
+                      icon: Icons.settings_outlined,
+                      width: _getCardWidth(context, 3),
+                      onTap: () => context.push('/settings'),
+                    ),
+
+                    _buildVerticalCard(
+                      context: context,
+                      title: 'Support & FAQs',
+                      subtitle: 'Contact details\n& FAQs',
+                      icon: Icons.support_agent_rounded,
+                      width: _getCardWidth(context, 3),
+                      onTap: () => context.push('/support-policy'),
+                    ),
+
+                    _buildVerticalCard(
+                      context: context,
+                      title: 'Terms & Conditions',
+                      subtitle: 'Partner terms\nof service',
+                      icon: Icons.description_outlined,
+                      width: _getCardWidth(context, 3),
+                      onTap: () => context.push('/terms-and-conditions'),
+                    ),
+
+                    _buildVerticalCard(
+                      context: context,
+                      title: 'Privacy Policy',
+                      subtitle: 'How your data\nis handled',
+                      icon: Icons.privacy_tip_outlined,
+                      width: _getCardWidth(context, 3),
+                      onTap: () => context.push('/privacy-policy'),
                     ),
                   ],
                 ),
@@ -289,6 +408,24 @@ class ExploreScreen extends ConsumerWidget {
                       width: _getCardWidth(context, 3),
                       onTap: () => context.push('/bank-details'),
                     ),
+
+                    _buildVerticalCard(
+                      context: context,
+                      title: 'Withdrawal history',
+                      subtitle: 'Pending, approved\n& rejected payouts',
+                      icon: Icons.history,
+                      width: _getCardWidth(context, 3),
+                      onTap: () => context.push('/withdrawal-history'),
+                    ),
+
+                    _buildVerticalCard(
+                      context: context,
+                      title: 'Download report',
+                      subtitle: 'Taxes report for\nany period',
+                      icon: Icons.download_outlined,
+                      width: _getCardWidth(context, 3),
+                      onTap: () => context.push('/download-report'),
+                    ),
                   ],
                 ),
 
@@ -298,13 +435,7 @@ class ExploreScreen extends ConsumerWidget {
                 // LOGOUT
                 // ==================================================
                 _buildLogoutCard(context, ref),
-
-                const SizedBox(height: 14),
-
-                // ==================================================
-                // DELETE ACCOUNT
-                // ==================================================
-                _buildDeleteAccountCard(context, ref),
+                // Delete Account moved to Settings.
               ],
             ),
           ),
@@ -641,13 +772,26 @@ class ExploreScreen extends ConsumerWidget {
                       ),
                     ],
                   ),
-                  child: const Center(
-                    child: Icon(
-                      Icons.storefront_rounded,
-                      color: Colors.white,
-                      size: 32,
-                    ),
-                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: (restaurantAsync.value?.profileImage ?? '').isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: restaurantAsync.value!.profileImage,
+                          fit: BoxFit.cover,
+                          errorWidget: (_, _, _) => const Center(
+                            child: Icon(
+                              Icons.storefront_rounded,
+                              color: Colors.white,
+                              size: 32,
+                            ),
+                          ),
+                        )
+                      : const Center(
+                          child: Icon(
+                            Icons.storefront_rounded,
+                            color: Colors.white,
+                            size: 32,
+                          ),
+                        ),
                 ),
 
                 const SizedBox(width: 14),
@@ -1016,144 +1160,19 @@ class ExploreScreen extends ConsumerWidget {
   }
 
   // ============================================================
-  // LOGOUT CARD
+  // LOGOUT CARD (asks "Are you sure?" first). Delete Account now lives in
+  // Settings.
   // ============================================================
 
   Widget _buildLogoutCard(BuildContext context, WidgetRef ref) {
     return InkWell(
-      onTap: () async {
-        final confirmed = await showDialog<bool>(
-          context: context,
-
-          builder: (context) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(22),
-            ),
-
-            title: const Text('Logout?'),
-
-            content: const Text(
-              'You will need to verify your phone number again to log back in.',
-            ),
-
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-
-                child: const Text('Cancel'),
-              ),
-
-              TextButton(
-                onPressed: () => Navigator.pop(context, true),
-
-                child: const Text(
-                  'Logout',
-
-                  style: TextStyle(
-                    color: AppColors.error,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-
-        if (confirmed == true) {
-          await ref.read(authControllerProvider.notifier).logout();
-        }
-      },
-
+      onTap: () => confirmAndLogout(context, ref),
       borderRadius: BorderRadius.circular(22),
-
       child: _buildActionCard(
         context: context,
         icon: Icons.logout_rounded,
         title: 'Logout',
         subtitle: 'Tap to sign out from this device',
-        color: AppColors.error,
-      ),
-    );
-  }
-
-  // ============================================================
-  // DELETE ACCOUNT CARD
-  // ============================================================
-
-  Widget _buildDeleteAccountCard(BuildContext context, WidgetRef ref) {
-    return InkWell(
-      onTap: () async {
-        final confirmed = await showDialog<bool>(
-          context: context,
-
-          builder: (context) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(22),
-            ),
-
-            title: const Text('Delete Account?'),
-
-            content: const Text(
-              'Are you sure you want to delete your account? This will permanently delete your restaurant profile, menu items, order history, and account data. This action cannot be undone.',
-            ),
-
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-
-                child: const Text('Cancel'),
-              ),
-
-              TextButton(
-                onPressed: () => Navigator.pop(context, true),
-
-                child: const Text(
-                  'Delete Account',
-
-                  style: TextStyle(
-                    color: AppColors.error,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-
-        if (confirmed == true && context.mounted) {
-          try {
-            await ref.read(authControllerProvider.notifier).deleteAccount();
-          } catch (e) {
-            if (context.mounted) {
-              final message = e is ApiException
-                  ? e.message
-                  : 'Failed to delete account. Please try again.';
-
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(message),
-
-                  backgroundColor: AppColors.error,
-
-                  behavior: SnackBarBehavior.floating,
-
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-              );
-            }
-          }
-        }
-      },
-
-      borderRadius: BorderRadius.circular(22),
-
-      child: _buildActionCard(
-        context: context,
-        icon: Icons.delete_outline_rounded,
-        title: 'Delete Account',
-        subtitle: 'Permanently delete your account',
         color: AppColors.error,
       ),
     );

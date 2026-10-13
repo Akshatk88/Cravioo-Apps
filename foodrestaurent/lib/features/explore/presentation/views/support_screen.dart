@@ -77,11 +77,14 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
         );
       }
     } catch (e) {
-      _showError(
-        e is ApiException
-            ? e.message
-            : 'Failed to submit ticket. Please try again.',
-      );
+      if (mounted) {
+        _showError(
+          ApiException.messageOf(
+            e,
+            fallback: 'Failed to submit ticket. Please try again.',
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -155,9 +158,10 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
                 ),
               ),
               error: (error, _) => Text(
-                error is ApiException
-                    ? error.message
-                    : 'Failed to load tickets.',
+                ApiException.messageOf(
+                  error,
+                  fallback: 'Failed to load tickets.',
+                ),
               ),
               data: (tickets) => _buildStatsRow(context, tickets),
             ),

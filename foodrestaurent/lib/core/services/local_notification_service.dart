@@ -25,7 +25,7 @@ class LocalNotificationService {
   static const _defaultChannel = AndroidNotificationChannel(
     'default',
     'General notifications',
-    description: 'Order updates and general alerts from Fodron Restaurant.',
+    description: 'Order updates and general alerts from Cravioo Restaurant.',
     importance: Importance.high,
   );
 
@@ -36,7 +36,7 @@ class LocalNotificationService {
   static const _highImportanceChannel = AndroidNotificationChannel(
     'high_importance_channel',
     'Order updates',
-    description: 'Order status updates and alerts from Fodron Restaurant.',
+    description: 'Order status updates and alerts from Cravioo Restaurant.',
     importance: Importance.max,
   );
 
@@ -45,13 +45,13 @@ class LocalNotificationService {
   // settings is silently ignored. Any device that already got this channel
   // from an earlier build (before the custom sound was wired up correctly)
   // is stuck with that old, wrong sound forever. The id was bumped to _v2 so
-  // every device creates a fresh channel and actually picks up `tujh_bin`.
+  // every device creates a fresh channel and actually picks up `tujh_bin1`.
   static const _newOrderChannel = AndroidNotificationChannel(
-    'new_order_channel_v2',
+    'new_order_channel_v3',
     'Order Alerts',
     description: 'High priority alerts for new orders.',
     importance: Importance.max,
-    sound: RawResourceAndroidNotificationSound('tujh_bin'),
+    sound: RawResourceAndroidNotificationSound('tujh_bin1'),
     playSound: true,
   );
 
@@ -198,7 +198,7 @@ class LocalNotificationService {
       final enabled = await androidPlugin?.areNotificationsEnabled();
       debugPrint(
         '[LocalNotification] about to show new_order notification — '
-        'id: $notifId, channel: ${channel.id}, sound: tujh_bin, '
+        'id: $notifId, channel: ${channel.id}, sound: tujh_bin1, '
         'actions: [Accept($orderAcceptActionId), Reject($orderRejectActionId)], '
         'notificationsEnabledAtOsLevel: $enabled',
       );
@@ -228,7 +228,7 @@ class LocalNotificationService {
             ongoing: useFullScreen,
             autoCancel: !useFullScreen,
             sound: isNewOrder
-                ? const RawResourceAndroidNotificationSound('tujh_bin')
+                ? const RawResourceAndroidNotificationSound('tujh_bin1')
                 : null,
             playSound: true,
             styleInformation: isNewOrder ? BigTextStyleInformation(body) : null,
@@ -237,7 +237,7 @@ class LocalNotificationService {
                 : null,
           ),
           iOS: DarwinNotificationDetails(
-            sound: isNewOrder ? 'tujh_bin.mp3' : null,
+            sound: isNewOrder ? 'tujh_bin1.mp3' : null,
             presentSound: true,
             // Cuts through Focus modes and shows on the lock screen at full
             // prominence — matches the Android `max` importance channel.

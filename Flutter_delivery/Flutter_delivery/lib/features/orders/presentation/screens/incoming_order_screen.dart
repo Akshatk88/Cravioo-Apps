@@ -57,11 +57,9 @@ class _IncomingOrderScreenState extends ConsumerState<IncomingOrderScreen> {
   void initState() {
     super.initState();
     HapticService.light();
-    // Only while the app is in front: backgrounded, the native overlay is ringing
-    // and a second tone here would outlive an Accept tapped on it.
-    if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
-      SoundService.playRingtone(source: 'IncomingOrderScreen');
-    }
+    // No ring here: IncomingOrderController.show already started the native
+    // NewOrderRingtone loop. Playing the Dart ringtone too is what made two
+    // sounds overlap.
 
     final deadline = widget.order.acceptanceDeadlineAt;
     _secondsLeft.value = deadline != null

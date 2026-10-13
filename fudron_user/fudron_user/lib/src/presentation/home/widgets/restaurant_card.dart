@@ -817,25 +817,7 @@ class _MediaCarouselState extends ConsumerState<_MediaCarousel> with SingleTicke
               ),
             ),
 
-          // 7. Carousel Dot Indicators on Bottom-Right (Matching Screenshot)
-          Positioned(
-            bottom: 8.h,
-            right: 12.w,
-            child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 4.h),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.45),
-                borderRadius: BorderRadius.circular(12.r),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: List.generate(
-                  _slideCount > 1 ? _slideCount : 4,
-                  (i) => _dot(i == (_currentPage % (_slideCount > 1 ? _slideCount : 4))),
-                ),
-              ),
-            ),
-          ),
+          // Carousel page dots removed (not wanted in the app).
         ],
       ),
     );
@@ -861,18 +843,6 @@ class _MediaCarouselState extends ConsumerState<_MediaCarousel> with SingleTicke
     );
   }
 
-  Widget _dot(bool active) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 250),
-      margin: EdgeInsets.only(left: 4.w),
-      width: active ? 14.w : 5.w,
-      height: 5.h,
-      decoration: BoxDecoration(
-        color: active ? Colors.white : Colors.white.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(3.r),
-      ),
-    );
-  }
 }
 
 /// Animated ticker cycling through items using vertical page-up transition

@@ -101,7 +101,7 @@ abstract class AppLocalizations {
   /// No description provided for @appName.
   ///
   /// In en, this message translates to:
-  /// **'Fudron'**
+  /// **'Cravioo'**
   String get appName;
 
   /// No description provided for @exitMessage.
@@ -371,7 +371,7 @@ abstract class AppLocalizations {
   /// No description provided for @newToFudron.
   ///
   /// In en, this message translates to:
-  /// **'New to Fudron? '**
+  /// **'New to Cravioo? '**
   String get newToFudron;
 
   /// No description provided for @signIn.
@@ -605,7 +605,7 @@ abstract class AppLocalizations {
   /// No description provided for @fudronWallet.
   ///
   /// In en, this message translates to:
-  /// **'Fudron Wallet'**
+  /// **'Cravioo Wallet'**
   String get fudronWallet;
 
   /// No description provided for @change.

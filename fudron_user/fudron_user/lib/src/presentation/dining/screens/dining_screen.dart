@@ -24,7 +24,6 @@ class DiningScreen extends ConsumerStatefulWidget {
 class _DiningScreenState extends ConsumerState<DiningScreen> {
   final TextEditingController _searchController = TextEditingController();
   final PageController _bannerPageController = PageController();
-  int _activeBannerIndex = 0;
 
   @override
   void initState() {
@@ -213,7 +212,16 @@ class _DiningScreenState extends ConsumerState<DiningScreen> {
                                     },
                                   )
                                 : null,
+                            // The app theme gives every field enabled/focused outlines and a fill; "border:"
+                            // alone does not override those states, so the field drew a second border
+                            // inside this container's own. Clear them all so only the container border shows.
+                            filled: false,
                             border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            disabledBorder: InputBorder.none,
+                            errorBorder: InputBorder.none,
+                            focusedErrorBorder: InputBorder.none,
                             contentPadding: EdgeInsets.symmetric(vertical: 10.h),
                           ),
                         ),
@@ -336,7 +344,7 @@ class _DiningScreenState extends ConsumerState<DiningScreen> {
                         Expanded(
                           child: PageView.builder(
                             controller: _bannerPageController,
-                            onPageChanged: (i) => setState(() => _activeBannerIndex = i),
+
                             itemCount: diningState.banners.length,
                             itemBuilder: (ctx, index) {
                               final banner = diningState.banners[index];
@@ -444,26 +452,7 @@ class _DiningScreenState extends ConsumerState<DiningScreen> {
                             },
                           ),
                         ),
-                        if (diningState.banners.length > 1) ...[
-                          SizedBox(height: 6.h),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: List.generate(
-                              diningState.banners.length,
-                              (i) => Container(
-                                width: _activeBannerIndex == i ? 16.w : 5.w,
-                                height: 4.h,
-                                margin: EdgeInsets.symmetric(horizontal: 2.w),
-                                decoration: BoxDecoration(
-                                  color: _activeBannerIndex == i
-                                      ? AppColors.primary
-                                      : (isDark ? Colors.white24 : Colors.grey.shade300),
-                                  borderRadius: BorderRadius.circular(2.r),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
+                        // Carousel page dots removed (not wanted in the app).
                       ],
                     ),
                   ),

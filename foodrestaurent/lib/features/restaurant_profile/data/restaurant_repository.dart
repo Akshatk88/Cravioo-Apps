@@ -96,18 +96,30 @@ class RestaurantRepository {
   }
 
 
-  /// Uploading a new logo resets the restaurant's approval status to
-  /// `pending` server-side — callers must warn the owner before calling this
-  /// on an already-approved restaurant.
-  Future<String> uploadProfileImage(XFile file) async {
+  /// POST /food/restaurant/profile/profile-image.
+  ///
+  /// For an already-approved outlet the backend does NOT apply the logo
+  /// live: it stages it in `pendingProfileChanges` and replies with
+  /// `{ pendingReviewSubmitted: true, message }` and no `profileImage`.
+  /// Otherwise it replies `{ profileImage: { url } }`.
+  Future<ProfileImageUploadResult> uploadProfileImage(XFile file) async {
     final formData = FormData.fromMap({'file': await xFileToMultipart(file)});
     final response = await _dio.post(
       '/food/restaurant/profile/profile-image',
       data: formData,
     );
-    final data = Map<String, dynamic>.from(response.data as Map);
-    final profileImage = Map<String, dynamic>.from(data['profileImage'] as Map);
-    return (profileImage['url'] ?? '').toString();
+    final data = response.data is Map
+        ? Map<String, dynamic>.from(response.data as Map)
+        : <String, dynamic>{};
+    final rawImage = data['profileImage'];
+    final url = rawImage is Map
+        ? (rawImage['url'] ?? '').toString()
+        : (rawImage ?? '').toString();
+    return ProfileImageUploadResult(
+      url: url,
+      pendingReview: data['pendingReviewSubmitted'] == true,
+      message: (data['message'] ?? '').toString(),
+    );
   }
 
   Future<Map<String, dynamic>> getMedia() async {
@@ -210,6 +222,24 @@ class RestaurantRepository {
   }
 }
 
-final restaurantRepositoryProvider = Provider<RestaurantRepository>((ref) {
+/// Outcome of a logo upload — see [RestaurantRepository.uploadProfileImage].
+class ProfileImageUploadResult {
+  const ProfileImageUploadResult({
+    required this.url,
+    required this.pendingReview,
+    required this.message,
+  });
+
+  /// The new live logo URL ('' when the change was staged for review).
+  final String url;
+
+  /// True when the server staged the logo for admin approval instead of
+  /// applying it — customers keep seeing the previous logo until then.
+  final bool pendingReview;
+
+  final String message;
+}
+
+final restaurantRepositoryProvider =Provider<RestaurantRepository>((ref) {
   return RestaurantRepository(ref.watch(dioProvider));
 });

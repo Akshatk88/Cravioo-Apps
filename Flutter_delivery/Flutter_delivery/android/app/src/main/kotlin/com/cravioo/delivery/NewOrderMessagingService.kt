@@ -25,8 +25,15 @@ class NewOrderMessagingService : FlutterFirebaseMessagingService() {
         val orderId = orderIdOf(data)
         var orderStatus = (data["orderStatus"] ?: data["status"])?.lowercase()
 
-        Log.d(TAG, "[FCM] MESSAGE RECEIVED (native) type=$type data=$data")
         Log.i(TAG, "Delivery FCM received: type=$type id=$orderId status=$orderStatus title=$title")
+
+        // Chat pushes carry the order id too, but they are not order offers: skip
+        // the new-order status lookup / alert dismissal and hand them straight to
+        // the Flutter plugin so Dart (foreground) or the OS tray shows them.
+        if (type in CHAT_TYPES) {
+            super.onMessageReceived(message)
+            return
+        }
 
         if (data.isNotEmpty() || notif != null) {
             val isExplicitDismiss = type in CLOSE_TYPES ||
@@ -35,13 +42,21 @@ class NewOrderMessagingService : FlutterFirebaseMessagingService() {
 
             if (isExplicitDismiss) {
                 if (orderId != null) {
-                    withdraw(orderId)
+                    NewOrderNotifier.dismiss(applicationContext, orderId)
                 }
                 super.onMessageReceived(message)
                 return
             }
 
-            val isOrderReadyAnnouncement = type in READY_TYPES ||
+            // The backend only sends a dispatch offer (new_order_available) once the
+            // food is ready_for_pickup (auto-assign and restaurant resend both gate
+            // on it), but the push carries no orderStatus. Looking the status up fails
+            // for an offer: GET /delivery/orders/:id is 403 "Not assigned to you" until
+            // the rider accepts. So the offer was dropped (no overlay, no ring, and
+            // every restaurant resend lost). Treat the offer itself as ready.
+            val isDispatchOffer = type == "new_order_available"
+
+            val isOrderReadyAnnouncement = isDispatchOffer || type in READY_TYPES ||
                     title.contains("ready for pickup") ||
                     title.contains("order ready") ||
                     body.contains("ready for pickup") ||
@@ -71,30 +86,23 @@ class NewOrderMessagingService : FlutterFirebaseMessagingService() {
             try {
                 if (isNewOrder) {
                     Log.i(TAG, "Displaying incoming order alert for $orderId (status=$orderStatus)")
-                    // Foreground is excluded deliberately: the in-app alert owns that
-                    // case, and floating a second copy over our own screen helps nobody.
-                    if (!AppForeground.isForeground) {
-                        // Dart's background handler returns early for these pushes, so
-                        // this is the ONLY place a notification can come from — the
-                        // card, or the fallback below, never both.
-                        if (NewOrderOverlay.show(applicationContext, data)) {
-                            Log.d(TAG, "[NEW_ORDER] overlay owns this one — no notification")
-                        } else {
-                            Log.d(TAG, "[NEW_ORDER] overlay unavailable — posting the fallback")
-                            NewOrderNotifier.post(applicationContext, data)
-                        }
-                    }
+                    // High-priority card over other apps, drawn natively (same as the
+                    // restaurant app) - no second Flutter engine involved.
+                    val overlayShown = NewOrderOverlay.canShow(applicationContext) &&
+                        !AppForeground.isForeground
+                    NewOrderOverlay.show(applicationContext, data)
+                    NewOrderNotifier.show(applicationContext, data, quiet = overlayShown)
                 } else {
                     Log.i(TAG, "Suppressed incoming order alert for $orderId: isReady=$isReady isNotReady=$isNotReady status=$orderStatus")
                     if (isNotReady && orderId != null) {
-                        withdraw(orderId)
+                        NewOrderNotifier.dismiss(applicationContext, orderId)
                     }
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed to post new-order alert", t)
                 if (isNewOrder) {
                     try {
-                        NewOrderNotifier.post(applicationContext, data)
+                        NewOrderNotifier.showFallback(applicationContext, data)
                     } catch (_: Throwable) {
                     }
                 }
@@ -102,12 +110,6 @@ class NewOrderMessagingService : FlutterFirebaseMessagingService() {
         }
 
         super.onMessageReceived(message)
-    }
-
-    /** Card, ringtone, our notification and the server's tray copy — all of it. */
-    private fun withdraw(orderId: String) {
-        NewOrderOverlay.dismissFor(orderId)
-        NewOrderNotifier.cancel(applicationContext, orderId)
     }
 
     override fun onNewToken(token: String) {
@@ -177,6 +179,11 @@ class NewOrderMessagingService : FlutterFirebaseMessagingService() {
             "delivery_partner_assigned",
             "order_ready",
             "order_ready_for_pickup"
+        )
+
+        private val CHAT_TYPES = setOf(
+            "chat_message",
+            "chat"
         )
 
         private val CLOSE_TYPES = setOf(

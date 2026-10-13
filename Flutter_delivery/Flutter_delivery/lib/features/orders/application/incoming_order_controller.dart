@@ -1,15 +1,15 @@
 import 'dart:async';
 
-import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/error/result.dart';
 import '../../../core/services/fcm_service.dart';
 import '../../../core/services/new_order_action_channel.dart';
-import '../../../core/services/new_order_overlay_bridge.dart';
 import '../../../core/services/order_resolution_tracker.dart';
 import '../../../core/services/socket_service.dart';
-import '../../../core/services/sound_service.dart';
+import '../../auth/application/auth_controller.dart';
+import '../../auth/application/auth_state.dart';
+import '../../pocket/application/cash_limit_guard.dart';
 import '../data/models/delivery_order.dart';
 import '../data/orders_repository.dart';
 import 'orders_controller.dart';
@@ -25,7 +25,8 @@ class IncomingOrderController extends Notifier<DeliveryOrder?> {
   StreamSubscription<Map<String, dynamic>>? _fcmTapSub;
   StreamSubscription<Map<String, dynamic>>? _orderClaimedSub;
   StreamSubscription<Map<String, dynamic>>? _orderDeassignedSub;
-  StreamSubscription<Map<String, dynamic>>? _orderStatusSub;
+  StreamSubscription<NewOrderAction>? _nativeActionSub;
+  StreamSubscription<String>? _nativeIncomingSub;
 
   // Backend keeps re-offering an order to this partner across re-offer
   // rounds even after it's been declined/expired here — track what's
@@ -34,8 +35,10 @@ class IncomingOrderController extends Notifier<DeliveryOrder?> {
 
   @override
   DeliveryOrder? build() {
+    NewOrderActionChannel.initialize();
     final socket = ref.read(socketServiceProvider);
-    _socketSub = socket.onNewOrderAvailable.listen(_onRealtimePayload);
+    _socketSub = socket.onNewOrderAvailable
+        .listen((data) => _onRealtimePayload(data, isOffer: true));
     final socketReadySub = socket.onOrderReady.listen(_onRealtimePayload);
     ref.onDispose(socketReadySub.cancel);
     _orderClaimedSub = socket.onOrderClaimed.listen(_autoDismissIfMatch);
@@ -45,11 +48,28 @@ class IncomingOrderController extends Notifier<DeliveryOrder?> {
     _fcmReceivedSub = fcm.onNotificationReceived.listen(_onRealtimePayload);
     _fcmTapSub = fcm.onNotificationTap.listen(_onRealtimePayload);
 
-    // A customer cancelling arrives as a status update, not as a claim — so
-    // without this the card kept ringing for an order that no longer existed.
-    _orderStatusSub = socket.onOrderStatusUpdate.listen((data) {
-      final status = (data['orderStatus'] ?? data['status'])?.toString().toLowerCase();
-      if (status == 'cancelled' || status == 'canceled') _withdraw(data);
+    _nativeIncomingSub = NewOrderActionChannel.onIncomingOrder.listen(_onIncomingOrderId);
+
+    _nativeActionSub = NewOrderActionChannel.onAction.listen((action) {
+      if (action.accepted) {
+        if (state?.id == action.orderId) {
+          accept();
+        } else {
+          ref
+              .read(ordersControllerProvider.notifier)
+              .acceptOrder(action.orderId)
+              .then((r) => r.when(
+                    success: (_) {},
+                    failure: (e) => ref.read(cashLimitGuardProvider).handleAcceptError(e.message),
+                  ));
+        }
+      } else {
+        if (state?.id == action.orderId) {
+          decline();
+        } else {
+          ref.read(ordersControllerProvider.notifier).rejectOrder(action.orderId);
+        }
+      }
     });
 
     ref.listen<OrdersState>(ordersControllerProvider, (prev, next) {
@@ -76,13 +96,33 @@ class IncomingOrderController extends Notifier<DeliveryOrder?> {
       _fcmTapSub?.cancel();
       _orderClaimedSub?.cancel();
       _orderDeassignedSub?.cancel();
-      _orderStatusSub?.cancel();
+      _nativeActionSub?.cancel();
+      _nativeIncomingSub?.cancel();
     });
 
     return null;
   }
 
-  void _onRealtimePayload(Map<String, dynamic> data) async {
+  void _onIncomingOrderId(String orderId) async {
+    if (orderId.isEmpty || _dismissedOrderIds.contains(orderId) || OrderResolutionTracker.isResolved(orderId)) return;
+    if (state != null && state!.id == orderId) return;
+
+    final result = await ref.read(ordersRepositoryProvider).getOrderDetails(orderId);
+    result.when(
+      success: (order) {
+        final st = order.orderStatus.toLowerCase();
+        if (st != 'ready_for_pickup' && st != 'ready') {
+          return;
+        }
+        if (!_dismissedOrderIds.contains(order.id) && !OrderResolutionTracker.isResolved(order.id)) {
+          show(order);
+        }
+      },
+      failure: (_) {},
+    );
+  }
+
+  void _onRealtimePayload(Map<String, dynamic> data, {bool isOffer = false}) async {
     if (data['type'] == 'order_taken' ||
         data['type'] == 'order_deassigned' ||
         data['type'] == 'order_cancelled' ||
@@ -98,12 +138,26 @@ class IncomingOrderController extends Notifier<DeliveryOrder?> {
             data['order_id'])
         ?.toString();
     if (orderId == null || orderId.isEmpty) return;
+    // A fresh dispatch offer (restaurant "Resend to drivers") for an order this
+    // rider already missed or declined earlier must ring again.
+    // (The foreground FCM handler may already have reopened it in the tracker,
+    // so key off the tracker's state rather than the return value.)
+    if (isOffer || data['type'] == 'new_order_available') {
+      OrderResolutionTracker.reopenForNewOffer(orderId);
+      if (!OrderResolutionTracker.isResolved(orderId)) {
+        _dismissedOrderIds.remove(orderId);
+      }
+    }
     if (_dismissedOrderIds.contains(orderId) || OrderResolutionTracker.isResolved(orderId)) return;
     if (state != null && state!.id == orderId) return;
 
     final type = data['type']?.toString();
     final title = (data['title'] ?? '').toString().toLowerCase();
-    final isOrderReadyType = type == 'order_ready' ||
+    // A dispatch offer is only ever sent once the food is ready_for_pickup, but
+    // carries no orderStatus, and the status lookup is 403 for an unassigned
+    // rider, so the offer counts as ready by itself (see NewOrderMessagingService).
+    final isOrderReadyType = type == 'new_order_available' ||
+        type == 'order_ready' ||
         type == 'order_ready_for_pickup' ||
         title.contains('ready for pickup') ||
         title.contains('order ready');
@@ -179,27 +233,26 @@ class IncomingOrderController extends Notifier<DeliveryOrder?> {
   void _autoDismissIfMatch(Map<String, dynamic> data) => _withdraw(data);
 
   void show(DeliveryOrder order) {
-    // Checked here rather than in the transport handlers: there are three ways
-    // in — socket, FCM, and the overlay handoff — and only some were guarded.
-    if (order.id.isEmpty || _dismissedOrderIds.contains(order.id)) return;
     if (OrderResolutionTracker.isResolved(order.id)) return;
     if (state?.id == order.id) return;
-    // The in-app card takes over only while the app is in front. Backgrounded,
-    // the native overlay is the alert the rider can see AND hear, so ringing here
-    // as well would play two tones that Accept on the overlay cannot both stop.
-    final inFront = WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
-    if (inFront) unawaited(NewOrderOverlayBridge.dismiss());
+
+    // Already one of this rider's orders, or the rider already holds as many
+    // as the admin allows (maxConcurrentOrders, default 1): an offer they
+    // cannot accept must not ring. The backend stops dispatching to them too.
+    final orders = ref.read(ordersControllerProvider);
+    if (orders is OrdersLoaded) {
+      final held = [
+        if (orders.currentOrder != null) orders.currentOrder!,
+        ...orders.otherActiveOrders,
+      ];
+      if (held.any((o) => o.id == order.id)) return;
+      final auth = ref.read(authControllerProvider);
+      final limit = auth is AuthAuthenticated ? auth.user.maxConcurrentOrders : 1;
+      if (held.length >= limit) return;
+    }
     state = order;
     OrderResolutionTracker.markAlerted(order.id);
-    if (inFront) unawaited(NewOrderActionChannel.startSound(order.id));
-  }
-
-  /// Silences every ringtone, whichever layer started it. A null id stops the
-  /// native ring regardless of which order it belongs to.
-  void _silenceAll() {
-    unawaited(SoundService.stopRingtone(source: 'IncomingOrderController.silenceAll'));
-    unawaited(NewOrderActionChannel.stopSound());
-    unawaited(NewOrderOverlayBridge.dismiss());
+    unawaited(NewOrderActionChannel.startSound(order.id));
   }
 
   Future<void> accept() async {
@@ -207,10 +260,17 @@ class IncomingOrderController extends Notifier<DeliveryOrder?> {
     if (order == null) return;
     _dismissedOrderIds.add(order.id);
     OrderResolutionTracker.markResolved(order.id);
-    _silenceAll();
+    unawaited(NewOrderActionChannel.stopSound(order.id));
     unawaited(NewOrderActionChannel.dismiss(order.id));
-    await ref.read(ordersControllerProvider.notifier).acceptOrder(order.id);
+    final result =
+        await ref.read(ordersControllerProvider.notifier).acceptOrder(order.id);
     state = null;
+    // The backend can refuse (e.g. COD order above the rider's remaining cash
+    // limit). Say why instead of silently closing the screen.
+    result.when(
+      success: (_) {},
+      failure: (e) => ref.read(cashLimitGuardProvider).handleAcceptError(e.message),
+    );
   }
 
   Future<void> decline() async {
@@ -228,58 +288,6 @@ class IncomingOrderController extends Notifier<DeliveryOrder?> {
   /// can reassign sooner. The BullMQ `processDispatchTimeout` job remains
   /// the authoritative fallback if this call never arrives.
   Future<void> expire() => decline();
-
-  /// Raises the alert for an order the rider tapped on the native overlay.
-  ///
-  /// Only the id crosses over, so the order is fetched fresh — which is the
-  /// right thing anyway: by the time they tap, the offer may already be gone.
-  Future<void> showById(String orderId, {bool autoAccept = false}) async {
-    // The rider has answered on the overlay; nothing may still be ringing,
-    // including when the guard below drops the request.
-    if (autoAccept) _silenceAll();
-    if (_dismissedOrderIds.contains(orderId) || OrderResolutionTracker.isResolved(orderId)) {
-      return;
-    }
-
-    // ACCEPT on the overlay is the decision, not a request to be asked again.
-    // Showing the card and accepting behind it makes the Accept button reappear
-    // for a beat — on a slow network, long enough to tap it twice. The order goes
-    // straight to the accept call and the trip screen comes up from
-    // ordersController; the card is never built.
-    if (autoAccept) {
-      // Clearing state removes a copy the socket may already have raised while
-      // the app was launching, before this handoff was read.
-      state = null;
-      final result =
-          await ref.read(ordersControllerProvider.notifier).acceptOrder(orderId);
-      result.when(
-        success: (_) {},
-        // Almost always "another partner got there first". Refreshing the list
-        // puts the rider back on solid ground instead of a trip that never began.
-        failure: (e) {
-          debugPrint('[offer] accept from overlay failed for $orderId: ${e.message}');
-          ref.read(ordersControllerProvider.notifier).refreshAvailable();
-        },
-      );
-      return;
-    }
-
-    final result = await ref.read(ordersRepositoryProvider).getOrderDetails(orderId);
-    result.when(
-      success: show,
-      failure: (e) => debugPrint('[offer] showById($orderId) failed: ${e.message}'),
-    );
-  }
-
-  /// Reports rejections the rider made on the overlay while the app was not
-  /// running. Best effort — the server's dispatch timeout covers any that fail.
-  Future<void> flushOverlayRejections() async {
-    final pending = await NewOrderOverlayBridge.takePendingRejections();
-    for (final orderId in pending) {
-      _dismissedOrderIds.add(orderId);
-      await ref.read(ordersControllerProvider.notifier).rejectOrder(orderId);
-    }
-  }
 
   void dismiss() {
     final order = state;

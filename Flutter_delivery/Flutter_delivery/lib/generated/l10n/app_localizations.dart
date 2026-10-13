@@ -97,13 +97,13 @@ abstract class AppLocalizations {
   /// No description provided for @appName.
   ///
   /// In en, this message translates to:
-  /// **'Appzeto Delivery'**
+  /// **'Cravioo Delivery'**
   String get appName;
 
   /// No description provided for @onboardingTitle1.
   ///
   /// In en, this message translates to:
-  /// **'Welcome to Fodron Delivery'**
+  /// **'Welcome to Cravioo Delivery'**
   String get onboardingTitle1;
 
   /// No description provided for @onboardingTitle2.

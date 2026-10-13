@@ -52,20 +52,11 @@ class AuthApi {
     );
   }
 
+  /// DELETE /food/restaurant/delete-account (restaurant.routes.js →
+  /// deleteRestaurantAccountController). Soft-deletes the outlet and revokes
+  /// all its refresh tokens server-side. Throws on failure.
   Future<void> deleteAccount() async {
-    try {
-      await _dio.delete('/food/auth/restaurant/account');
-    } on DioException catch (e) {
-      if (e.response?.statusCode == 404) {
-        try {
-          await _dio.delete('/food/auth/account');
-        } on DioException catch (_) {
-          await _dio.delete('/food/restaurant/me');
-        }
-      } else {
-        rethrow;
-      }
-    }
+    await _dio.delete('/food/restaurant/delete-account');
   }
 }
 

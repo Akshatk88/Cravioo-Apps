@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../di/support_contact_provider.dart';
 import '../../../core/utils/haptics.dart';
 import '../../branding/app_colors.dart';
 
@@ -93,7 +95,7 @@ class AboutScreen extends StatelessWidget {
               SizedBox(height: 20.h),
 
               // 4. WHY CHOOSE SUVIO? SECTION
-              _buildSectionTitle('Why Choose Lagech?', isDark),
+              _buildSectionTitle('Why Choose Cravioo?', isDark),
               SizedBox(height: 12.h),
               _buildWhyChooseUsCard(isDark, textColor, secondaryTextColor),
 
@@ -127,7 +129,7 @@ class AboutScreen extends StatelessWidget {
                   ),
                   SizedBox(height: 2.h),
                   Text(
-                    '© 2026 Lagech. All Rights Reserved.',
+                    '© 2026 Cravioo. All Rights Reserved.',
                     style: TextStyle(
                       fontSize: 11.sp,
                       color: secondaryTextColor,
@@ -233,7 +235,7 @@ class AboutScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Text(
-                      'Lagech',
+                      'Cravioo',
                       style: TextStyle(
                         fontSize: 28.sp,
                         fontWeight: FontWeight.w900,
@@ -301,7 +303,7 @@ class AboutScreen extends StatelessWidget {
 
                 // Description
                 Text(
-                  'Lagech is your trusted food delivery platform, connecting you with the best restaurants, cafés and food partners. Fresh meals, quick delivery and delightful experiences – all at your fingertips.',
+                  'Cravioo is your trusted food delivery platform, connecting you with the best restaurants, cafés and food partners. Fresh meals, quick delivery and delightful experiences – all at your fingertips.',
                   style: TextStyle(
                     fontSize: 11.sp,
                     height: 1.35,
@@ -754,11 +756,14 @@ class AboutScreen extends StatelessWidget {
     Color textColor,
     Color secondaryTextColor,
   ) {
+    // Company, email and phone come from the admin's Business settings.
+    return Consumer(builder: (context, ref, _) {
+    final contact = ref.watch(supportContactProvider).value ?? SupportContact.empty;
     final items = [
       {
         'icon': Icons.label_outlined,
         'title': 'Company Name',
-        'value': 'Lagech',
+        'value': contact.companyName,
         'isLink': false,
       },
       {
@@ -770,23 +775,23 @@ class AboutScreen extends StatelessWidget {
       {
         'icon': Icons.language_rounded,
         'title': 'Website',
-        'value': 'www.suvio.com',
+        'value': 'www.cravioo.in',
         'isLink': true,
-        'url': 'https://www.lagech.com',
+        'url': 'https://www.cravioo.in',
       },
       {
         'icon': Icons.email_outlined,
         'title': 'Email',
-        'value': "[EMAIL_ADDRESS]",
+        'value': contact.hasEmail ? contact.email : 'Not available',
         'isLink': false,
-        'url': "mailto:[EMAIL_ADDRESS]",
+        'url': 'mailto:${contact.email}',
       },
       {
         'icon': Icons.phone_outlined,
         'title': 'Customer Support',
-        'value': '+91 98765 43210',
+        'value': contact.hasPhone ? contact.phone : 'Not available',
         'isLink': false,
-        'url': 'tel:+919876543210',
+        'url': 'tel:${contact.phone.replaceAll(' ', '')}',
       },
     ];
 
@@ -879,6 +884,7 @@ class AboutScreen extends StatelessWidget {
         }),
       ),
     );
+    });
   }
 
   /// 6. Thank You Banner Card: Heart Icon + Message + Food Bowl Illustration
@@ -925,7 +931,7 @@ class AboutScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Thank you for being a part of Lagech!',
+                  'Thank you for being a part of Cravioo!',
                   style: TextStyle(
                     fontSize: 12.5.sp,
                     fontWeight: FontWeight.bold,

@@ -10,6 +10,7 @@ import 'package:food_user_application/core/services/order_resolution_tracker.dar
 import 'package:food_user_application/core/services/fcm_service.dart';
 import 'package:food_user_application/features/orders/data/order_repository.dart';
 import 'package:food_user_application/features/orders/domain/order_model.dart';
+import 'package:food_user_application/features/orders/presentation/widgets/resend_to_riders_button.dart';
 import 'package:food_user_application/features/orders/presentation/controllers/live_orders_controller.dart';
 import 'package:food_user_application/core/widgets/app_refresh_indicator.dart';
 
@@ -395,6 +396,12 @@ class _OrderDetailsScreenState extends ConsumerState<OrderDetailsScreen> {
             ),
           ),
         );
+      case 'ready_for_pickup':
+        // Food is ready but no rider has taken it: let the restaurant send the
+        // delivery request out again.
+        return ResendToRidersButton.isAvailableFor(order)
+            ? ResendToRidersButton(order: order)
+            : const SizedBox.shrink();
       default:
         if (order.isCancelled) {
           return Text(

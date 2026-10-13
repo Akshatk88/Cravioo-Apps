@@ -55,13 +55,17 @@ class _CartRecommendationsSectionState extends ConsumerState<CartRecommendations
     setState(() => _selectedTabIndex = index);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || index >= _tabKeys.length) return;
-      final tabContext = _tabKeys[index].currentContext;
-      if (tabContext != null) {
-        Scrollable.ensureVisible(
-          tabContext,
+      final tabObject = _tabKeys[index].currentContext?.findRenderObject();
+      // Scroll only the horizontal tab strip. Scrollable.ensureVisible also
+      // scrolls every enclosing scrollable, so each 3-second auto-advance
+      // dragged the whole cart page back up to these tabs while the user was
+      // scrolling down.
+      if (tabObject != null && _tabScrollController.hasClients) {
+        _tabScrollController.position.ensureVisible(
+          tabObject,
+          alignment: 0.5,
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeOut,
-          alignment: 0.5,
         );
       }
     });

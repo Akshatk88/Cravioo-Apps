@@ -8,7 +8,16 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'package:food_user_application/app.dart';
 import 'package:food_user_application/core/services/fcm_service.dart';
+import 'package:food_user_application/core/services/order_overlay_service.dart';
 import 'config/constants/app_constants.dart';
+
+/// Entry point for the new-order overlay's own Flutter engine. Must stay
+/// top-level in this file with this exact name: the overlay plugin resolves
+/// "overlayMain" from the app's main library.
+@pragma('vm:entry-point')
+void overlayMain() {
+  runApp(const OrderBubbleApp());
+}
 
 void main() {
   runZonedGuarded(

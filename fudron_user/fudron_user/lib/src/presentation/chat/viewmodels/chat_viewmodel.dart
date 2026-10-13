@@ -63,6 +63,10 @@ class ChatViewModel extends Notifier<ChatState> {
   StreamSubscription? _typingSub;
   Timer? _typingResetTimer;
 
+  /// Peer id learned from the existing conversation when [arg] has none.
+  String? _resolvedPeerId;
+  String? get _peerId => arg.peerId ?? _resolvedPeerId;
+
   @override
   ChatState build() {
     ref.onDispose(() {
@@ -135,7 +139,12 @@ class ChatViewModel extends Notifier<ChatState> {
   bool _isForThisThread(Map<String, dynamic> data) {
     final convId = state.conversationId;
     if (convId != null && data['conversationId'] == convId) return true;
-    if (arg.orderId != null && data['orderId'] == arg.orderId) return true;
+    // Chat payloads carry the Mongo id as orderMongoId; orderId is the
+    // display number.
+    if (arg.orderId != null &&
+        (data['orderMongoId'] == arg.orderId || data['orderId'] == arg.orderId)) {
+      return true;
+    }
     return false;
   }
 
@@ -149,12 +158,27 @@ class ChatViewModel extends Notifier<ChatState> {
       }).toList();
 
       if (existing.isEmpty) {
-        // No messages exchanged yet — start with an empty thread; the first
-        // send establishes the conversation.
-        state = state.copyWith(isLoading: false, messages: const [], clearError: true);
+        // No messages exchanged yet: open the order's conversation now so the
+        // first send has an id to post to (the backend requires it).
+        final orderId = arg.orderId;
+        String? openedId;
+        if (orderId != null && orderId.isNotEmpty) {
+          try {
+            openedId = await ref.read(chatRemoteDataSourceProvider).openConversation(orderId);
+          } catch (_) {}
+        }
+        state = state.copyWith(
+          isLoading: false,
+          messages: const [],
+          conversationId: openedId,
+          clearError: true,
+        );
         return;
       }
 
+      // A chat opened from a push may not know the peer's id; the existing
+      // thread does, and sending to a delivery partner requires it.
+      _resolvedPeerId ??= existing.first.peerId;
       final conversationId = existing.first.conversationId;
       final result = await ref.read(chatRemoteDataSourceProvider).getMessages(conversationId: conversationId);
       state = state.copyWith(isLoading: false, messages: result.messages, conversationId: conversationId, clearError: true);
@@ -209,15 +233,23 @@ class ChatViewModel extends Notifier<ChatState> {
     if (trimmed.isEmpty) return null;
     state = state.copyWith(isSending: true, clearError: true);
     try {
-      final message = await ref.read(chatRemoteDataSourceProvider).sendMessage(
-            peerRole: arg.peerRole,
-            peerId: arg.peerId,
-            orderId: arg.orderId,
-            text: trimmed,
-          );
+      final datasource = ref.read(chatRemoteDataSourceProvider);
+      var conversationId = state.conversationId;
+      if (conversationId == null || conversationId.isEmpty) {
+        final orderId = arg.orderId;
+        if (orderId == null || orderId.isEmpty) {
+          state = state.copyWith(isSending: false);
+          return 'Chat is available only for an active order.';
+        }
+        conversationId = await datasource.openConversation(orderId);
+        state = state.copyWith(conversationId: conversationId);
+      }
+      final message = await datasource.sendMessage(
+        conversationId: conversationId,
+        text: trimmed,
+      );
       state = state.copyWith(
         messages: [...state.messages, message],
-        conversationId: state.conversationId ?? message.conversationId,
         isSending: false,
       );
       return null;
@@ -234,7 +266,7 @@ class ChatViewModel extends Notifier<ChatState> {
     if (convId == null) return;
     ref.read(socketServiceProvider).emitChatTyping(
           toRole: arg.peerRole,
-          toId: arg.peerId,
+          toId: _peerId,
           conversationId: convId,
           typing: true,
         );
@@ -242,7 +274,7 @@ class ChatViewModel extends Notifier<ChatState> {
     _typingResetTimer = Timer(const Duration(seconds: 3), () {
       ref.read(socketServiceProvider).emitChatTyping(
             toRole: arg.peerRole,
-            toId: arg.peerId,
+            toId: _peerId,
             conversationId: convId,
             typing: false,
           );

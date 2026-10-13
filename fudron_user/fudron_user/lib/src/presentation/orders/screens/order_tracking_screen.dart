@@ -67,57 +67,67 @@ class _OrderTrackingScreenState extends ConsumerState<OrderTrackingScreen> {
 
   Future<void> _refresh() => ref.read(orderTrackingProvider.notifier).refresh();
 
+  /// Leaves the tracking screen exactly once when the order has finished.
+  ///
+  /// This used to run from both the state listener and a post-frame callback on
+  /// every rebuild, so a cancellation fired several navigations and refetches in
+  /// a row - the screen flashed blank with a spinner before (or instead of)
+  /// reaching Home. Cancelled goes straight Home; delivered opens the summary.
+  void _leaveFinishedOrder(OrderModel order) {
+    if (_navigatedToDelivered || !mounted) return;
+    _navigatedToDelivered = true;
+    ref.read(orderTrackingProvider.notifier).stop();
+    ref.read(activeOrderViewModelProvider.notifier).fetchActiveOrder();
+
+    if (order.isDelivered || order.orderStatus == 'completed') {
+      AppSnackbar.success(context, '🎉 Order Delivered! Enjoy your meal.', duration: const Duration(seconds: 4));
+      context.push('/orders/delivered/${order.id}');
+      return;
+    }
+    if (order.isCancelled) {
+      final reason = order.cancellationReason.isNotEmpty
+          ? order.cancellationReason
+          : 'Your order has been cancelled.';
+      AppSnackbar.error(context, reason, duration: const Duration(seconds: 4));
+    }
+    context.go(RouteNames.home);
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen<OrderTrackingState>(orderTrackingProvider, (previous, next) {
       final order = next.order;
-      if (order == null) return;
-
-      if (!order.isActive) {
-        ref.read(orderTrackingProvider.notifier).stop();
-        ref.read(activeOrderViewModelProvider.notifier).fetchActiveOrder();
-
-        if (mounted) {
-          if (order.isCancelled) {
-            final reason = order.cancellationReason.isNotEmpty
-                ? order.cancellationReason
-                : 'Order has been cancelled.';
-            AppSnackbar.error(context, reason, duration: const Duration(seconds: 4));
-          } else if (order.isDelivered || order.orderStatus == 'completed') {
-            if (_navigatedToDelivered) return;
-            _navigatedToDelivered = true;
-            AppSnackbar.success(
-              context,
-              '🎉 Order Delivered! Enjoy your meal.',
-              duration: const Duration(seconds: 4),
-            );
-            context.push('/orders/delivered/${order.id}');
-            return;
-          }
-
-          context.go(RouteNames.home);
-        }
-      }
+      if (order != null && !order.isActive) _leaveFinishedOrder(order);
     });
 
     final state = ref.watch(orderTrackingProvider);
     final order = state.order;
     final theme = Theme.of(context);
 
-    if (order != null && !order.isActive) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          ref.read(orderTrackingProvider.notifier).stop();
-          ref.read(activeOrderViewModelProvider.notifier).fetchActiveOrder();
-          if (order.isDelivered || order.orderStatus == 'completed') {
-            if (_navigatedToDelivered) return;
-            _navigatedToDelivered = true;
-            context.push('/orders/delivered/${order.id}');
-          } else {
-            context.go(RouteNames.home);
-          }
-        }
-      });
+    // Opened on an order that had already finished (e.g. from a notification).
+    if (order != null && !order.isActive && !_navigatedToDelivered) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _leaveFinishedOrder(order));
+    }
+
+    // A cancelled order: never show the tracking skeleton/spinner while leaving.
+    if (order != null && order.isCancelled) {
+      return Scaffold(
+        backgroundColor: theme.brightness == Brightness.dark
+            ? AppColors.backgroundDark
+            : const Color(0xFFF4F5F7),
+        body: const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.cancel_rounded, color: Color(0xFFFF6464), size: 48),
+              SizedBox(height: 12),
+              Text('Order cancelled', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+              SizedBox(height: 4),
+              Text('Taking you home…', style: TextStyle(color: Colors.grey)),
+            ],
+          ),
+        ),
+      );
     }
 
     final isDark = theme.brightness == Brightness.dark;
@@ -588,6 +598,7 @@ class _MapSection extends StatelessWidget {
                             customerLat: custLat,
                             customerLng: custLng,
                             routePoints: liveState.routePoints,
+                            headingToCustomer: liveOrder.isOutForDelivery,
                           ),
 
                           // Floating Rider Partner Card Overlay
@@ -712,6 +723,7 @@ class _MapSection extends StatelessWidget {
                 customerLat: custLat,
                 customerLng: custLng,
                 routePoints: state.routePoints,
+                headingToCustomer: order.isOutForDelivery,
               ),
             ),
 
@@ -1070,7 +1082,10 @@ class _DeliveryPartnerCard extends StatelessWidget {
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15.5, color: textColor),
                     ),
                     const SizedBox(height: 3),
-                    Row(
+                    Wrap(
+                      // Wrap, not Row: next to the call and chat buttons there is little room,
+                      // and "3.3  8 ratings" overflowed the card by a few pixels.
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         if (partner.rating > 0) ...[
                           const Icon(Icons.star_rounded, color: Color(0xFF1FA855), size: 15),

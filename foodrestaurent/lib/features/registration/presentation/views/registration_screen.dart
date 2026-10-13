@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:food_user_application/config/theme/app_colors.dart';
+import 'package:food_user_application/features/outlets/presentation/controllers/outlets_controller.dart';
 import 'package:food_user_application/features/registration/presentation/controllers/registration_controller.dart';
 import 'package:food_user_application/features/registration/presentation/views/steps/step1_restaurant_info.dart';
 import 'package:food_user_application/features/registration/presentation/views/steps/step2_location.dart';
@@ -35,6 +36,9 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
   final List<bool> _stepValid = [false, false, false, false];
   bool _hasHandledSubmitSuccess = false;
 
+  bool get _isAdditionalOutlet =>
+      ref.read(registrationControllerProvider.notifier).form.isAdditionalOutlet;
+
   @override
   void initState() {
     super.initState();
@@ -58,7 +62,11 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Discard application?'),
-        content: const Text('Your progress on this registration will be lost.'),
+        content: Text(
+          _isAdditionalOutlet
+              ? 'Your progress on this outlet will be lost. The outlet stays in your list so you can finish it later.'
+              : 'Your progress on this registration will be lost.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -75,7 +83,7 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
       ),
     );
     if (shouldDiscard == true && mounted) {
-      context.go('/login');
+      context.go(_isAdditionalOutlet ? '/outlets' : '/login');
     }
   }
 
@@ -119,7 +127,17 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
       }
       if (next.isSubmitted && !_hasHandledSubmitSuccess) {
         _hasHandledSubmitSuccess = true;
-        context.go('/register/success');
+        if (_isAdditionalOutlet) {
+          ref.invalidate(outletsControllerProvider);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Outlet submitted for review.'),
+            ),
+          );
+          context.go('/outlets');
+        } else {
+          context.go('/register/success');
+        }
       }
     });
 
@@ -136,11 +154,13 @@ class _RegistrationScreenState extends ConsumerState<RegistrationScreen> {
                     onPressed: _confirmDiscard,
                     icon: const Icon(Icons.close, color: Colors.black87),
                   ),
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'Restaurant onboarding',
+                      _isAdditionalOutlet
+                          ? 'Add outlet'
+                          : 'Restaurant onboarding',
                       textAlign: TextAlign.center,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
                         color: Colors.black54,

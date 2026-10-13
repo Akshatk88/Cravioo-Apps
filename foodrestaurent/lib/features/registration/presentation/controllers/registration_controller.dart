@@ -55,6 +55,25 @@ class RegistrationController extends Notifier<RegistrationUiState> {
     form.ownerPhone = phone;
   }
 
+  /// Prepares the wizard to onboard one more outlet for an existing owner.
+  ///
+  /// The token is outlet-scoped, so the server updates that outlet's record
+  /// instead of looking one up by phone. Owner details, PAN, bank and zone are
+  /// filled in server-side from the owner account.
+  void configureAdditionalOutlet({
+    required String outletName,
+    required String ownerPhone,
+    required String zoneId,
+    required String token,
+  }) {
+    form
+      ..isAdditionalOutlet = true
+      ..restaurantName = outletName
+      ..ownerPhone = ownerPhone
+      ..zoneId = zoneId;
+    _inMemoryToken = token;
+  }
+
   void setRegistrationToken(String token) {
     _inMemoryToken = token;
   }
@@ -112,7 +131,9 @@ class RegistrationController extends Notifier<RegistrationUiState> {
       );
 
       // Clear registration token after successful submission
-      await tokenStorage.clearRegistrationToken();
+      // An outlet-scoped token is never persisted, so there is nothing to clear
+      // (and the first-registration token must stay for its own flow).
+      if (!form.isAdditionalOutlet) await tokenStorage.clearRegistrationToken();
       _inMemoryToken = null;
       state = state.copyWith(isSubmitting: false, isSubmitted: true);
     } on DioException catch (e) {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:go_router/go_router.dart';
 import 'package:food_user_application/src/presentation/branding/app_colors.dart';
 import 'package:food_user_application/src/presentation/branding/app_theme.dart';
 import 'package:food_user_application/src/presentation/branding/locale_provider.dart';
@@ -16,6 +17,8 @@ import 'core/constants/app_constants.dart';
 import 'di/push_providers.dart';
 import 'platform/notifications/push_service.dart';
 import 'presentation/auth/viewmodels/auth_viewmodel.dart';
+import 'presentation/chat/screens/chat_screen.dart';
+import 'presentation/navigation/route_names.dart';
 import 'presentation/navigation/home_first_back_button_dispatcher.dart';
 import 'di/location_providers.dart';
 
@@ -81,12 +84,116 @@ class _FoodUserApplicationState extends ConsumerState<FoodUserApplication> {
     );
   }
 
-  /// Routes an order push to the tracking screen.
+  /// A tapped push waiting for the app to be ready to show it.
+  PushDeepLink? _pendingLink;
+  GoRouter? _listenedRouter;
+
+  /// Routes a tapped push: chat pushes open the chat, order pushes open
+  /// tracking.
+  ///
+  /// The link is queued rather than pushed immediately. On a cold start (tap
+  /// from a terminated app) it arrives while the splash is still up, and the
+  /// splash then calls `context.go(home)`, which replaced the whole stack and
+  /// silently dropped the screen the tap had pushed. It is flushed once the
+  /// router has left splash/login and a user is signed in.
   void _handleDeepLink(PushDeepLink link) {
+    _pendingLink = link;
+    _attachRouterListener();
+    _flushPendingLink();
+  }
+
+  void _attachRouterListener() {
+    final router = ref.read(routerProvider);
+    if (identical(_listenedRouter, router)) return;
+    _listenedRouter?.routerDelegate.removeListener(_flushPendingLink);
+    _listenedRouter = router;
+    router.routerDelegate.addListener(_flushPendingLink);
+  }
+
+  static const _notReadyPaths = {
+    '',
+    RouteNames.splash,
+    RouteNames.login,
+    RouteNames.otp,
+  };
+
+  void _flushPendingLink() {
+    final link = _pendingLink;
+    if (link == null || !mounted) return;
+
+    final auth = ref.read(authViewModelProvider);
+    if (auth.isLoading || auth.value == null) return; // wait for sign-in
+
+    final router = ref.read(routerProvider);
+    final String path;
+    try {
+      path = router.routerDelegate.currentConfiguration.uri.path;
+    } catch (_) {
+      return; // router not built yet
+    }
+    if (_notReadyPaths.contains(path)) return;
+
+    _pendingLink = null;
+    // Defer out of the router-listener callback so navigation never re-enters
+    // the delegate while it is notifying.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _openLink(router, link, currentPath: path);
+    });
+  }
+
+  void _openLink(GoRouter router, PushDeepLink link, {required String currentPath}) {
+    if (link.isChatEvent) {
+      final args = _chatArgsFor(link);
+      // Already inside a chat: replace it rather than stacking chat on chat.
+      if (currentPath == RouteNames.chat) {
+        router.pushReplacement(RouteNames.chat, extra: args);
+      } else {
+        router.push(RouteNames.chat, extra: args);
+      }
+      return;
+    }
+    // A cancelled order has nothing left to track: land on Home directly.
+    if (link.isOrderEvent && link.isCancelledOrder) {
+      router.go(RouteNames.home);
+      return;
+    }
     final orderId = link.trackableOrderId;
     if (!link.isOrderEvent || orderId == null || orderId.isEmpty) return;
     // Route is declared as /orders/track/:id — a path param, not a query.
-    ref.read(routerProvider).push('/orders/track/$orderId');
+    router.push('/orders/track/$orderId');
+  }
+
+  /// Builds the same [ChatArgs] the in-app entry points use, so a tap lands on
+  /// the same thread (and the same chat view-model instance) as opening the
+  /// chat from the tracking screen.
+  static ChatArgs _chatArgsFor(PushDeepLink link) {
+    final orderId = link.trackableOrderId ?? '';
+    var role = (link.senderRole ?? '').toUpperCase();
+    // The sender of a push the customer receives is the other party; a
+    // USER/empty role means the payload did not say, so infer from context.
+    if (role.isEmpty || role == 'USER' || role == 'CUSTOMER') {
+      role = orderId.isNotEmpty ? 'DELIVERY_PARTNER' : 'ADMIN';
+    }
+    if (role == 'EMPLOYEE' || role == 'SUPPORT') role = 'ADMIN';
+    if (role == 'DELIVERY' || role == 'RIDER' || role == 'DELIVERY_BOY') role = 'DELIVERY_PARTNER';
+
+    final isSupport = role == 'ADMIN';
+    final name = link.senderName;
+    return ChatArgs(
+      orderId: orderId,
+      peerId: isSupport ? null : link.senderId,
+      peerName: (name != null && name.isNotEmpty)
+          ? name
+          : (isSupport ? 'Support' : 'Delivery partner'),
+      peerRole: role,
+    );
+  }
+
+  @override
+  void dispose() {
+    _listenedRouter?.routerDelegate.removeListener(_flushPendingLink);
+    super.dispose();
   }
 
   @override
@@ -96,6 +203,10 @@ class _FoodUserApplicationState extends ConsumerState<FoodUserApplication> {
     // Register the device against the account on login; unregister on logout so
     // the next user of the device is not targeted.
     ref.listen(authViewModelProvider, (previous, next) {
+      // A push tapped before sign-in/session restore finished is waiting.
+      if (_pendingLink != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _flushPendingLink());
+      }
       final was = previous?.value?.id;
       final now = next.value?.id;
       if (was == now && now != null) return;

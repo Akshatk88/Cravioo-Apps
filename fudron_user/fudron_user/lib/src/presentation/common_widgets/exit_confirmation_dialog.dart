@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/utils/haptics.dart';
 import '../branding/app_colors.dart';
 
-/// Shows a premium Material 3 Exit Confirmation Dialog for Fudron.
+/// Shows a premium Material 3 Exit Confirmation Dialog for Cravioo.
 Future<bool?> showExitConfirmationDialog(BuildContext context) {
   Haptics.light();
   return showDialog<bool>(

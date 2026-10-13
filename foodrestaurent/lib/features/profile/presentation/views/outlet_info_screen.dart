@@ -117,9 +117,10 @@ class OutletInfoScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  error is ApiException
-                      ? error.message
-                      : 'Failed to load outlet info.',
+                  ApiException.messageOf(
+                    error,
+                    fallback: 'Failed to load outlet info.',
+                  ),
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: _textColor(context),
@@ -484,9 +485,10 @@ class OutletInfoScreen extends ConsumerWidget {
                                 ),
                                 content: const Text(
                                   'Your restaurant is currently approved. '
-                                  'Changing the logo will send your profile '
-                                  'back for admin review, and ordering will '
-                                  'pause until re-approved.',
+                                  'A new logo is sent to the admin for '
+                                  'review. Your outlet stays live and '
+                                  'customers keep seeing the current logo '
+                                  'until it is approved.',
                                 ),
                                 actions: [
                                   TextButton(
@@ -514,30 +516,48 @@ class OutletInfoScreen extends ConsumerWidget {
                               ),
                             );
 
-                            if (confirmed != true) {
+                            if (confirmed != true || !context.mounted) {
                               return;
                             }
                           }
 
                           final file = await pickImageWithSourceSheet(context);
 
-                          if (file == null) {
+                          if (file == null || !context.mounted) {
                             return;
                           }
 
+                          final messenger = ScaffoldMessenger.of(context);
+                          messenger.showSnackBar(
+                            const SnackBar(
+                              content: Text('Uploading logo...'),
+                              duration: Duration(seconds: 20),
+                            ),
+                          );
+
                           try {
-                            await ref
+                            final result = await ref
                                 .read(
                                   restaurantProfileControllerProvider.notifier,
                                 )
                                 .uploadProfileImage(file);
 
+                            messenger.hideCurrentSnackBar();
                             if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Logo updated.')),
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    result.pendingReview
+                                        ? 'New logo submitted for admin review. '
+                                              'Customers see the current logo '
+                                              'until it is approved.'
+                                        : 'Logo updated.',
+                                  ),
+                                ),
                               );
                             }
                           } catch (e) {
+                            messenger.hideCurrentSnackBar();
                             if (context.mounted) {
                               _showError(context, e);
                             }
@@ -583,6 +603,47 @@ class OutletInfoScreen extends ConsumerWidget {
                       ),
                     ],
                   ),
+
+                  if (restaurant.hasPendingLogo) ...[
+                    const SizedBox(height: 12),
+
+                    // NEW LOGO AWAITING ADMIN APPROVAL
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.75),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: CachedNetworkImage(
+                              imageUrl: restaurant.pendingProfileImage,
+                              width: 36,
+                              height: 36,
+                              fit: BoxFit.cover,
+                              errorWidget: (_, _, _) =>
+                                  _logoPlaceholder(size: 36),
+                            ),
+                          ),
+                          const SizedBox(width: 9),
+                          Expanded(
+                            child: Text(
+                              'New logo submitted for review. Customers see '
+                              'the current logo until an admin approves it.',
+                              style: TextStyle(
+                                color: Colors.orange.shade900,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
 
                   const SizedBox(height: 15),
 
@@ -708,7 +769,7 @@ class OutletInfoScreen extends ConsumerWidget {
           ],
         );
 
-        if (result == null) {
+        if (result == null || !context.mounted) {
           return;
         }
 
@@ -768,7 +829,7 @@ class OutletInfoScreen extends ConsumerWidget {
           ],
         );
 
-        if (result == null) {
+        if (result == null || !context.mounted) {
           return;
         }
 
@@ -1050,7 +1111,7 @@ class OutletInfoScreen extends ConsumerWidget {
           ],
         );
 
-        if (result == null) {
+        if (result == null || !context.mounted) {
           return;
         }
 
@@ -1737,14 +1798,21 @@ class OutletInfoScreen extends ConsumerWidget {
     Map<String, String> patch,
   ) async {
     try {
-      await ref
+      final submittedForReview = await ref
           .read(restaurantProfileControllerProvider.notifier)
           .updateProfile(patch);
 
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Saved successfully.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              submittedForReview
+                  ? 'Changes submitted for admin review. Your outlet keeps '
+                        'the current details until they are approved.'
+                  : 'Saved successfully.',
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (context.mounted) {
@@ -1758,9 +1826,7 @@ class OutletInfoScreen extends ConsumerWidget {
   // ============================================================
 
   void _showError(BuildContext context, Object error) {
-    final message = error is ApiException
-        ? error.message
-        : 'Something went wrong. Please try again.';
+    final message = ApiException.messageOf(error);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -1900,9 +1966,7 @@ class _ComplianceEditSheetState extends ConsumerState<_ComplianceEditSheet> {
         );
       }
     } catch (e) {
-      final message = e is ApiException
-          ? e.message
-          : 'Something went wrong. Please try again.';
+      final message = ApiException.messageOf(e);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

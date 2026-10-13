@@ -97,9 +97,10 @@ class RestaurantStatusScreen extends ConsumerWidget {
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Text(
-              error is ApiException
-                  ? error.message
-                  : 'Failed to load restaurant status.',
+              ApiException.messageOf(
+                error,
+                fallback: 'Failed to load restaurant status.',
+              ),
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: isDark
@@ -214,22 +215,30 @@ class RestaurantStatusScreen extends ConsumerWidget {
 
                         const SizedBox(width: 10),
 
-                        // Settings icon
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? AppColors.surfaceVariantDark
-                                : AppColors.surfaceVariantLight,
-                            borderRadius: BorderRadius.circular(13),
-                          ),
-                          child: Icon(
-                            Icons.settings_outlined,
-                            color: isDark
-                                ? AppColors.textSecondaryDark
-                                : AppColors.textSecondaryLight,
-                            size: 20,
+                        // Settings icon -> outlet settings (name, logo,
+                        // address, contact) for this restaurant.
+                        Material(
+                          color: isDark
+                              ? AppColors.surfaceVariantDark
+                              : AppColors.surfaceVariantLight,
+                          borderRadius: BorderRadius.circular(13),
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap: () => context.push('/outlet-info'),
+                            child: Tooltip(
+                              message: 'Outlet settings',
+                              child: SizedBox(
+                                width: 40,
+                                height: 40,
+                                child: Icon(
+                                  Icons.settings_outlined,
+                                  color: isDark
+                                      ? AppColors.textSecondaryDark
+                                      : AppColors.textSecondaryLight,
+                                  size: 20,
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ],

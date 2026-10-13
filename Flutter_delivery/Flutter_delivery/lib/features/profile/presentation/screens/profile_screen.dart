@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/error/result.dart';
@@ -23,6 +26,72 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   int? _totalDeliveries;
+  bool _uploadingPhoto = false;
+
+  Future<void> _changeProfilePhoto() async {
+    if (_uploadingPhoto) return;
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.r)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take photo'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from gallery'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+
+    final XFile? picked;
+    try {
+      picked = await ImagePicker().pickImage(
+        source: source,
+        imageQuality: 75,
+        maxWidth: 1024,
+        preferredCameraDevice: CameraDevice.front,
+      );
+    } catch (_) {
+      _snack('Could not open ${source == ImageSource.camera ? 'camera' : 'gallery'}');
+      return;
+    }
+    if (picked == null || !mounted) return;
+
+    setState(() => _uploadingPhoto = true);
+    final bytes = await picked.readAsBytes();
+    final mime = picked.path.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+    final result = await ref
+        .read(profileRepositoryProvider)
+        .uploadProfilePhotoBase64(base64Encode(bytes), mimeType: mime);
+    if (!mounted) return;
+    setState(() => _uploadingPhoto = false);
+    result.when(
+      success: (url) {
+        ref.read(authControllerProvider.notifier).updateProfilePhoto(url);
+        _snack('Profile photo updated');
+      },
+      failure: (e) => _snack(e.message),
+    );
+  }
+
+  void _snack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
 
   @override
   void initState() {
@@ -103,10 +172,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           TextButton(
             onPressed: () async {
               Navigator.of(dialogContext).pop();
+              // Blocking progress while the server deletes the account.
+              showDialog<void>(
+                context: context,
+                barrierDismissible: false,
+                builder: (_) => const PopScope(
+                  canPop: false,
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              );
               final result = await ref
                   .read(profileRepositoryProvider)
                   .deleteAccount();
-              if (!mounted) return;
+              if (!mounted || !context.mounted) return;
+              Navigator.of(context, rootNavigator: true).pop();
               result.when(
                 success: (_) => ref.read(authControllerProvider.notifier).logout(),
                 failure: (e) => ScaffoldMessenger.of(context).showSnackBar(
@@ -299,6 +378,52 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       ? Icon(Icons.person, color: theme.primaryColor, size: 32.sp)
                       : null,
                 ),
+                if (_uploadingPhoto)
+                  Positioned.fill(
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        color: Colors.black38,
+                        shape: BoxShape.circle,
+                      ),
+                      alignment: Alignment.center,
+                      child: SizedBox(
+                        width: 22.r,
+                        height: 22.r,
+                        child: const CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                // Edit photo: its own tap target, so it doesn't open the
+                // driver details page like the rest of the card.
+                Positioned(
+                  top: -4,
+                  right: -4,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _changeProfilePhoto,
+                    child: Container(
+                      padding: EdgeInsets.all(5.r),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.15),
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.edit,
+                        color: theme.primaryColor,
+                        size: 14.sp,
+                      ),
+                    ),
+                  ),
+                ),
                 if (user?.isApproved == true)
                   Positioned(
                     bottom: -2,
@@ -490,6 +615,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         'Settings',
         'App preferences',
         () => _showSettingsSheet(context),
+      ),
+      (
+        Icons.delete_outline,
+        'Delete Account',
+        'Permanently remove your account',
+        () => _confirmDeleteAccount(context),
       ),
     ];
 

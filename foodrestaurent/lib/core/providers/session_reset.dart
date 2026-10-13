@@ -7,6 +7,12 @@ import 'package:food_user_application/features/menu_items/presentation/controlle
 import 'package:food_user_application/features/offers/presentation/controllers/offer_controller.dart';
 import 'package:food_user_application/features/orders/presentation/controllers/live_orders_controller.dart';
 import 'package:food_user_application/features/orders/presentation/controllers/order_history_controller.dart';
+import 'package:food_user_application/features/outlets/presentation/controllers/outlets_controller.dart';
+import 'package:food_user_application/features/item_slots/presentation/controllers/item_slot_controller.dart';
+import 'package:food_user_application/features/referral/presentation/controllers/referral_controller.dart';
+import 'package:food_user_application/features/advertisements/presentation/controllers/advertisement_controller.dart';
+import 'package:food_user_application/features/wallet/presentation/controllers/wallet_controller.dart';
+import 'package:food_user_application/features/reports/presentation/controllers/tax_report_controller.dart';
 import 'package:food_user_application/features/restaurant_profile/presentation/controllers/restaurant_profile_controller.dart';
 import 'package:food_user_application/features/support/presentation/controllers/support_controller.dart';
 import 'package:food_user_application/features/zones/data/zone_repository.dart';
@@ -31,8 +37,14 @@ void resetSessionScopedProviders(Ref ref) {
   ref.invalidate(supportControllerProvider);
   ref.invalidate(financeControllerProvider);
   ref.invalidate(withdrawalsControllerProvider);
-  ref.invalidate(subscriptionInvoicesControllerProvider);
   ref.invalidate(liveOrdersControllerProvider);
   ref.invalidate(orderHistoryControllerProvider);
   ref.invalidate(activeZonesProvider);
+  ref.invalidate(outletsControllerProvider);
+  ref.invalidate(itemSlotControllerProvider);
+  ref.invalidate(referralControllerProvider);
+  ref.invalidate(advertisementControllerProvider);
+  ref.invalidate(withdrawalHistoryControllerProvider);
+  ref.invalidate(taxReportControllerProvider);
+  ref.invalidate(sharedTaxReportsControllerProvider);
 }

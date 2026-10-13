@@ -60,6 +60,7 @@ class ApiPaths {
 
   // ---- Chat ----
   static const String chatConversations = '/food/chat/conversations';
+  static const String chatConversationOpen = '/food/chat/conversations/open';
   static const String chatMessages = '/food/chat/messages';
   static String chatConversationRead(String conversationId) => '/food/chat/conversations/$conversationId/read';
 

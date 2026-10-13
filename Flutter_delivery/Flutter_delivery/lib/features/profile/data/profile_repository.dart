@@ -33,9 +33,26 @@ class ProfileRepository {
     'upiId': ?upiId,
   });
 
-  Future<Result<DeliveryPartner, AppError>> uploadProfilePhotoBase64(
-    String base64Image,
-  ) => _patch(ApiEndpoints.profilePhotoBase64, {'photo': base64Image});
+  /// Backend: POST /food/delivery/profile/photo-base64 with `{base64, mimeType}`,
+  /// answers `{data: {partner}}`. Returns the new photo URL.
+  Future<Result<String, AppError>> uploadProfilePhotoBase64(
+    String base64Image, {
+    String mimeType = 'image/jpeg',
+  }) async {
+    try {
+      final res = await _dio.post(
+        ApiEndpoints.profilePhotoBase64,
+        data: {'base64': base64Image, 'mimeType': mimeType},
+      );
+      final body = res.data['data'] as Map<String, dynamic>? ?? const {};
+      final partner = (body['partner'] ?? body['user'] ?? body) as Map<String, dynamic>;
+      final url = partner['profilePhoto']?.toString() ?? '';
+      if (url.isEmpty) return Result.failure(NetworkError('Photo upload failed'));
+      return Result.success(url);
+    } on DioException catch (e) {
+      return Result.failure(_mapError(e));
+    }
+  }
 
   Future<Result<DeliveryPartner, AppError>> updateAvailability(
     bool isOnline, {

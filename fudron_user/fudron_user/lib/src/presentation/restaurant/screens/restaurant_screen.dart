@@ -724,6 +724,9 @@ class _RestaurantScreenState extends ConsumerState<RestaurantScreen> {
                         .withValues(alpha: 0.65),
                     fontWeight: FontWeight.w400,
                   ),
+                  // The app theme fills every field; without this the field painted a
+                  // second rounded shape inside the pill's own border (a double border).
+                  filled: false,
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,

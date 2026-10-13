@@ -130,7 +130,15 @@ final dioProvider = Provider<Dio>((ref) {
             path.contains('/auth/refresh-token') ||
             path.contains('/restaurant/register');
 
-        if (statusCode == 401 && !isAuthEndpoint) {
+        // A 401 only means "your session is bad" if the request actually carried one.
+        // A request sent with no Authorization header (e.g. fired before login) says
+        // nothing about the session - and treating it as expiry cleared the tokens a
+        // login had just saved, which then surfaced as "Authentication token missing".
+        final sentAuth = error.requestOptions.headers['Authorization'] ??
+            error.requestOptions.headers['authorization'];
+        final carriedSession = sentAuth is String && sentAuth.trim().isNotEmpty;
+
+        if (statusCode == 401 && !isAuthEndpoint && carriedSession) {
           final refreshed = await refreshTokens(tokenStorage);
           if (refreshed) {
             try {

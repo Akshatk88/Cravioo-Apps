@@ -9,7 +9,7 @@ class AppLocalizationsHi extends AppLocalizations {
   AppLocalizationsHi([String locale = 'hi']) : super(locale);
 
   @override
-  String get appName => 'Fudron';
+  String get appName => 'Cravioo';
 
   @override
   String exitMessage(Object user) {
@@ -149,7 +149,7 @@ class AppLocalizationsHi extends AppLocalizations {
   String get alreadyRegistered => 'पहले से पंजीकृत हैं? ';
 
   @override
-  String get newToFudron => 'Fudron पर नए हैं? ';
+  String get newToFudron => 'Cravioo पर नए हैं? ';
 
   @override
   String get signIn => 'साइन इन करें';
@@ -270,7 +270,7 @@ class AppLocalizationsHi extends AppLocalizations {
   String get cashOnDelivery => 'कैश ऑन डिलीवरी (COD)';
 
   @override
-  String get fudronWallet => 'Fudron वॉलेट';
+  String get fudronWallet => 'Cravioo वॉलेट';
 
   @override
   String get change => 'बदलें';
@@ -361,7 +361,7 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get shareAppSubtitle =>
-      'Fudron फूड डिलीवरी ऐप दोस्तों के साथ शेयर करें';
+      'Cravioo फूड डिलीवरी ऐप दोस्तों के साथ शेयर करें';
 
   @override
   String get logOut => 'लॉग आउट';

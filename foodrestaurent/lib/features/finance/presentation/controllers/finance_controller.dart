@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:food_user_application/features/finance/data/finance_repository.dart';
 import 'package:food_user_application/features/finance/domain/finance_model.dart';
-import 'package:food_user_application/features/finance/domain/subscription_invoice_model.dart';
 import 'package:food_user_application/features/finance/domain/withdrawal_model.dart';
 
 class FinanceController extends AsyncNotifier<FinanceModel> {
@@ -52,24 +51,3 @@ final withdrawalsControllerProvider =
     AsyncNotifierProvider<WithdrawalsController, List<WithdrawalModel>>(
       WithdrawalsController.new,
     );
-
-class SubscriptionInvoicesController
-    extends AsyncNotifier<List<SubscriptionInvoiceModel>> {
-  @override
-  Future<List<SubscriptionInvoiceModel>> build() {
-    return ref.read(financeRepositoryProvider).listSubscriptionInvoices();
-  }
-
-  Future<void> refresh() async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(
-      () => ref.read(financeRepositoryProvider).listSubscriptionInvoices(),
-    );
-  }
-}
-
-final subscriptionInvoicesControllerProvider =
-    AsyncNotifierProvider<
-      SubscriptionInvoicesController,
-      List<SubscriptionInvoiceModel>
-    >(SubscriptionInvoicesController.new);

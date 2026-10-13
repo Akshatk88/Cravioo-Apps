@@ -1,11 +1,14 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:food_user_application/core/providers/core_providers.dart';
 import 'package:food_user_application/core/services/fcm_service.dart';
 import 'package:food_user_application/core/services/new_order_action_channel.dart';
 import 'package:food_user_application/core/services/order_resolution_tracker.dart';
 import 'package:food_user_application/core/services/socket_service.dart';
+import 'package:food_user_application/core/services/order_overlay_service.dart';
 import 'package:food_user_application/features/orders/data/order_repository.dart';
 import 'package:food_user_application/features/orders/domain/order_model.dart';
+import 'package:food_user_application/features/outlets/presentation/controllers/outlets_controller.dart';
 
 /// Backs the main Orders tab: one list of current orders, bucketed
 /// client-side into the 7 status tabs (see [OrderModel.restaurantBucket]),
@@ -22,10 +25,38 @@ class LiveOrdersController extends AsyncNotifier<List<OrderModel>> {
 
   @override
   Future<List<OrderModel>> build() async {
+    // Riverpod re-runs build() on this SAME notifier instance after an
+    // invalidate (login reset, outlet switch, scope toggle), so everything set
+    // up here must be torn down and rebuilt each time. Keeping the old listener
+    // (`??=`) or the old "already wired" flag left a disposed AppLifecycleListener
+    // behind and a socket with its handlers removed.
+    _lifecycleListener = AppLifecycleListener(
+      onResume: () {
+        // The restaurant is back in the app, so the floating alert has done its job.
+        OrderOverlayService.close();
+        refresh();
+      },
+    );
+    ref.onDispose(() {
+      _lifecycleListener?.dispose();
+      _lifecycleListener = null;
+      _socketWired = false;
+    });
     await _wireSocket();
-    _lifecycleListener ??= AppLifecycleListener(onResume: refresh);
-    ref.onDispose(() => _lifecycleListener?.dispose());
-    return ref.read(orderRepositoryProvider).listCurrent();
+    return _fetch();
+  }
+
+  /// Read, not watched: a rebuild here would run the onDispose below and drop
+  /// the socket handlers. The scope toggle invalidates this provider instead.
+  Future<List<OrderModel>> _fetch() async {
+    // The app builds this provider at launch, before anyone is signed in. A fetch
+    // then is a guaranteed 401 ("Authentication token missing") that only burns
+    // the server's per-IP rate limit and, on a 401, can wipe the session that a
+    // login is creating at that very moment. Nothing to list when signed out.
+    final token = await ref.read(tokenStorageProvider).accessToken;
+    if (token == null || token.isEmpty) return const <OrderModel>[];
+    final allOutlets = ref.read(ordersScopeProvider) == kOrdersScopeAll;
+    return ref.read(orderRepositoryProvider).listCurrent(allOutlets: allOutlets);
   }
 
   Future<void> _wireSocket() async {
@@ -58,7 +89,7 @@ class LiveOrdersController extends AsyncNotifier<List<OrderModel>> {
 
   Future<void> refresh() async {
     state = await AsyncValue.guard(
-      () => ref.read(orderRepositoryProvider).listCurrent(),
+      _fetch,
     );
   }
 

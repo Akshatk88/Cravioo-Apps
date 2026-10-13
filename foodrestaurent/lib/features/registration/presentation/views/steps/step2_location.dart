@@ -228,6 +228,7 @@ class _Step2LocationState extends ConsumerState<Step2Location> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
       children: [
+        if (!form.isAdditionalOutlet) ...[
         _sectionCard(
           title: 'Delivery Zone',
           subtitle: 'Select the operational zone where your restaurant delivers.',
@@ -319,6 +320,7 @@ class _Step2LocationState extends ConsumerState<Step2Location> {
           ],
         ),
         const SizedBox(height: 20),
+        ],
         _sectionCard(
           title: 'Pin your location',
           subtitle:

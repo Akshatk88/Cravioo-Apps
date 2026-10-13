@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:food_user_application/core/error/result.dart';
@@ -13,6 +12,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:food_user_application/core/constants/map_styles.dart';
 import 'package:food_user_application/core/constants/app_constants.dart';
 import 'package:food_user_application/core/utils/map_launcher.dart';
+import 'package:food_user_application/core/utils/rider_marker.dart';
 import 'package:food_user_application/core/utils/polyline_decoder.dart';
 import 'package:food_user_application/core/services/device_readiness_service.dart';
 import 'package:food_user_application/core/services/location_service.dart';
@@ -47,7 +47,8 @@ class FeedScreen extends ConsumerStatefulWidget {
 class _FeedScreenState extends ConsumerState<FeedScreen>
     with SingleTickerProviderStateMixin {
   bool _isCurrentOrderVisible = true;
-  bool _showReferEarn = true;
+  // ignore: unused_field
+  bool _showReferEarn = true; // Refer & Earn button is commented out for now.
   bool _isActionLoading = false;
 
   Map<String, dynamic>? _earningsSummary;
@@ -59,12 +60,17 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   GoogleMapController? _mapController;
   Position? _currentPosition;
   StreamSubscription<Position>? _positionSub;
+  final RiderHeadingTracker _headingTracker = RiderHeadingTracker();
 
   List<LatLng> _routePoints = [];
   LatLng? _routeDestination;
   String? _routeKey;
   Timer? _routeRefreshTimer;
-  late final AnimationController _pulseController;
+
+  /// Built once: a new descriptor per build made the plugin call
+  /// Marker.setIcon on every map update.
+  static final BitmapDescriptor _destinationIcon =
+      BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
   StreamSubscription<Map<String, dynamic>>? _fcmReceivedSub;
   int _unreadNotificationCount = 0;
 
@@ -78,12 +84,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     _loadUnreadCount();
     _listenForFcmNotifications();
     _positionSub = ref.read(locationServiceProvider).positionStream.listen((pos) {
+      _headingTracker.update(pos);
       if (mounted) setState(() => _currentPosition = pos);
     });
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2000),
-    )..repeat();
   }
 
   /// Offered when going online with something outstanding that will cost the
@@ -189,17 +192,12 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     );
   }
 
-  Future<Uint8List> _getBytesFromAsset(String path, int width) async {
-    ByteData data = await rootBundle.load(path);
-    ui.Codec codec = await ui.instantiateImageCodec(data.buffer.asUint8List(), targetWidth: width);
-    ui.FrameInfo fi = await codec.getNextFrame();
-    return (await fi.image.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List();
-  }
-
   Future<void> _loadMarkerIcon() async {
     try {
-      final Uint8List markerIcon = await _getBytesFromAsset('assets/image/bike.png', 80);
-      _bikeMarkerIcon = BitmapDescriptor.fromBytes(markerIcon);
+      // Wait for the first frame so MediaQuery (device pixel ratio) is available.
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      _bikeMarkerIcon = await RiderMarker.load(MediaQuery.devicePixelRatioOf(context));
       if (mounted) setState(() {});
     } catch (e) {
       debugPrint('Failed to load map marker: $e');
@@ -240,7 +238,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     _routeRefreshTimer?.cancel();
     _positionSub?.cancel();
     _fcmReceivedSub?.cancel();
-    _pulseController.dispose();
     super.dispose();
   }
 
@@ -281,11 +278,15 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
         final destLoc = target == 'restaurant'
             ? order.restaurant.location
             : order.deliveryAddress.location;
-        final destination = destLoc != null
+        final destination = destLoc != null && MapLauncher.isValidCoordinate(destLoc.lat, destLoc.lng)
             ? LatLng(destLoc.lat, destLoc.lng)
             : (points.isNotEmpty ? points.last : null);
         setState(() {
-          _routePoints = points;
+          // No road route available (endpoint missing / failed): draw a
+          // straight line to the target so the rider still sees direction.
+          _routePoints = points.isEmpty && destination != null
+              ? [LatLng(pos.latitude, pos.longitude), destination]
+              : points;
           _routeDestination = destination;
         });
         if (destination != null && _mapController != null) {
@@ -341,6 +342,25 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   void _showSnack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Opens Google Maps turn-by-turn to the current trip target: restaurant
+  /// until pickup is confirmed, customer afterwards. Returns false (after
+  /// telling the rider) when the order has no usable coordinates.
+  Future<bool> _navigateToTarget(DeliveryOrder order) async {
+    HapticService.light();
+    final toRestaurant = order.currentPhase == 'en_route_to_pickup' ||
+        order.currentPhase == 'at_pickup';
+    final loc = toRestaurant ? order.restaurant.location : order.deliveryAddress.location;
+    if (loc == null || !MapLauncher.isValidCoordinate(loc.lat, loc.lng)) {
+      _showSnack(toRestaurant
+          ? 'Restaurant location is not available for this order'
+          : 'Customer location is not available for this order');
+      return false;
+    }
+    final opened = await MapLauncher.launchGoogleMaps(loc.lat, loc.lng);
+    if (!opened) _showSnack('Could not open Google Maps on this device');
+    return true;
   }
 
   Future<void> _runAction(Future<Result<DeliveryOrder, AppError>> Function() call) async {
@@ -401,7 +421,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     final controller = ref.read(ordersControllerProvider.notifier);
     final otp = await showOtpBottomSheet(context, customerName: order.customerName);
     if (otp == null || otp.length != 4) return;
-    final result = await controller.verifyDropOtp(order.id, otp);
+    if (!mounted) return;
+    final result = await runWithOtpProgress(context, () => controller.verifyDropOtp(order.id, otp));
     result.when(success: (_) {}, failure: (error) => _showSnack(error.message));
   }
 
@@ -463,6 +484,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
+      // Keyboard (OTP) must not resize the screen and re-lay out the map.
+      resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
           Positioned.fill(
@@ -512,7 +535,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
               ),
             ),
           ),
-          if (_showReferEarn) _buildReferEarnFab(),
+          // Refer & Earn button hidden for now (kept for later).
+          // if (_showReferEarn) _buildReferEarnFab(),
         ],
       ),
     );
@@ -870,6 +894,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     );
   }
 
+  // ignore: unused_element
   Widget _buildReferEarnFab() {
     return Positioned(
       right: -10.w,
@@ -948,9 +973,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
                               order.currentPhase == 'at_pickup' || 
                               order.currentPhase == 'en_route_to_delivery' || 
                               order.currentPhase == 'at_drop';
-
-    final bool navigateToRestaurant = order.currentPhase == 'en_route_to_pickup' || 
-                                      order.currentPhase == 'at_pickup';
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -1067,15 +1089,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
               if (showNavigate) ...[
                 SizedBox(width: 8.w),
                 GestureDetector(
-                  onTap: () {
-                    if (navigateToRestaurant && order.restaurant.location != null) {
-                      MapLauncher.launchGoogleMaps(order.restaurant.location!.lat, order.restaurant.location!.lng);
-                    } else if (!navigateToRestaurant && order.deliveryAddress.location != null) {
-                      MapLauncher.launchGoogleMaps(order.deliveryAddress.location!.lat, order.deliveryAddress.location!.lng);
-                    } else {
-                      _showSnack('Location not available');
-                    }
-                  },
+                  onTap: () => _navigateToTarget(order),
                   child: Container(
                     height: 48.h,
                     width: 48.h,
@@ -1243,10 +1257,22 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     return SizedBox.expand(
       child: Stack(
         children: [
-            AnimatedBuilder(
-              animation: _pulseController,
-              builder: (context, child) {
-                final pos = _currentPosition;
+            // Rebuilt only by GPS/route setState - never per animation frame.
+            // A pulsing map Circle driven by an AnimationController rebuilt the
+            // GoogleMap 60x a second and pushed a circle + marker update across
+            // the platform channel each frame, saturating the Android main
+            // thread until the app hit ANR (worst with the trip map also open).
+            Builder(
+              builder: (context) {
+                // The full-screen trip view (with its own map) covers this one:
+                // don't keep a second live GoogleMap running underneath it.
+                final tripCovering = ref.watch(
+                      ordersControllerProvider.select(
+                        (s) => s is OrdersLoaded && s.currentOrder != null,
+                      ),
+                    ) &&
+                    ref.watch(activeTripVisibilityControllerProvider);
+                final pos = tripCovering ? null : _currentPosition;
                 if (pos == null) {
                   return Container(
                     color: isDarkMode ? const Color(0xFF242f3e) : const Color(0xFFE8F2ED),
@@ -1260,10 +1286,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
                   );
                 }
                 final authState = ref.read(authControllerProvider);
-                final bool isBike = authState is AuthAuthenticated &&
-                                    (authState.user.vehicleType?.toLowerCase() == 'bike' ||
-                                     authState.user.vehicleType?.toLowerCase() == 'two_wheeler');
-                final bool useCustomMarker = isBike && _bikeMarkerIcon != null;
+                final bool useCustomMarker = _bikeMarkerIcon != null &&
+                    RiderMarker.suitsVehicle(
+                      authState is AuthAuthenticated ? authState.user.vehicleType : null,
+                    );
 
                 return GoogleMap(
                   onMapCreated: (controller) => _mapController = controller,
@@ -1278,25 +1304,24 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
                         position: LatLng(pos.latitude, pos.longitude),
                         icon: _bikeMarkerIcon!,
                         anchor: const Offset(0.5, 0.5),
-                        rotation: pos.heading,
+                        rotation: _headingTracker.heading,
+                        flat: true,
                       ),
                     if (_routeDestination != null)
                       Marker(
                         markerId: const MarkerId('route_destination'),
                         position: _routeDestination!,
-                        icon: BitmapDescriptor.defaultMarkerWithHue(
-                          BitmapDescriptor.hueRed,
-                        ),
+                        icon: _destinationIcon,
                       ),
                   },
                   circles: {
                     Circle(
                       circleId: const CircleId('live_location_pulse'),
                       center: LatLng(pos.latitude, pos.longitude),
-                      radius: 50 + (_pulseController.value * 55),
-                      fillColor: const ui.Color.fromARGB(255, 250, 131, 57).withValues(alpha: (1 - _pulseController.value) * 0.11),
-                      strokeColor: const ui.Color.fromARGB(255, 41, 190, 30).withValues(alpha: (1 - _pulseController.value) * 0.55),
-                      strokeWidth: 3,
+                      radius: 80,
+                      fillColor: const ui.Color.fromARGB(20, 41, 190, 30),
+                      strokeColor: const ui.Color.fromARGB(110, 41, 190, 30),
+                      strokeWidth: 2,
                     ),
                   },
                   polylines: {
@@ -1348,19 +1373,13 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
                   SizedBox(height: 16.h),
                   GestureDetector(
                     onTap: () {
-                      HapticService.light();
                       final ordersState = ref.read(ordersControllerProvider);
                       if (ordersState is OrdersLoaded && ordersState.hasActiveOrder) {
-                        final order = ordersState.currentOrder!;
-                        final navigateToRestaurant = order.currentPhase == 'en_route_to_pickup' || order.currentPhase == 'at_pickup';
-                        final lat = navigateToRestaurant ? order.restaurant.location?.lat : order.deliveryAddress.location?.lat;
-                        final lng = navigateToRestaurant ? order.restaurant.location?.lng : order.deliveryAddress.location?.lng;
-                        if (lat != null && lng != null) {
-                          MapLauncher.launchGoogleMaps(lat, lng);
-                          return;
-                        }
+                        _navigateToTarget(ordersState.currentOrder!);
+                        return;
                       }
-                      
+                      HapticService.light();
+
                       final pos = ref.read(locationServiceProvider).lastPosition;
                       if (pos != null && _mapController != null) {
                         _mapController!.animateCamera(

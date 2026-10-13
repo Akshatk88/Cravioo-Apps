@@ -36,6 +36,7 @@ class OrderStatusCard extends StatelessWidget {
       case 'cancelled_by_user':
       case 'cancelled_by_restaurant':
       case 'cancelled_by_admin':
+      case 'cancelled_by_system':
       case 'rejected':
       case 'failed':
       case 'expired':

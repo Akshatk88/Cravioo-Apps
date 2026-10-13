@@ -7,17 +7,25 @@ import '../../../core/error/result.dart';
 import '../../../core/services/location_service.dart';
 import '../../../core/services/rider_online_service.dart';
 import '../../../core/services/socket_service.dart';
+import '../../../core/utils/rider_marker.dart';
 import '../../auth/application/auth_state.dart';
 import '../../auth/application/auth_controller.dart';
+import '../../pocket/application/cash_limit_guard.dart';
+import '../../../core/services/overlay_permission_prompt.dart';
 import '../../orders/application/orders_controller.dart';
 import '../../orders/application/orders_state.dart';
 import '../data/profile_repository.dart';
 
 class AvailabilityController extends Notifier<bool> {
-  late final ProfileRepository _repository;
+  // Not `final`: after ref.invalidate the same Notifier instance re-runs
+  // build(), and re-assigning a `late final` throws.
+  late ProfileRepository _repository;
   StreamSubscription<Position>? _positionSub;
   Timer? _keepAliveTimer;
+  Timer? _tripLocationTimer;
   DateTime _lastPing = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastTripEmit = DateTime.fromMillisecondsSinceEpoch(0);
+  final RiderHeadingTracker _headingTracker = RiderHeadingTracker();
 
   @override
   bool build() {
@@ -27,7 +35,11 @@ class AvailabilityController extends Notifier<bool> {
 
     ref.onDispose(() {
       _positionSub?.cancel();
+      _positionSub = null;
       _keepAliveTimer?.cancel();
+      _keepAliveTimer = null;
+      _tripLocationTimer?.cancel();
+      _tripLocationTimer = null;
       // Covers logout, which tears this controller down without going through
       // goOffline — otherwise the service and its notification outlive the
       // session, claiming a signed-out rider is online.
@@ -39,6 +51,10 @@ class AvailabilityController extends Notifier<bool> {
         await _repository.updateAvailability(true);
         _startTracking();
         ref.read(ordersControllerProvider.notifier).startPolling();
+        // Going online with the cash limit used up means COD orders will be refused.
+        unawaited(ref.read(overlayPermissionPromptProvider).check(force: true).then(
+          (_) => ref.read(cashLimitGuardProvider).check(),
+        ));
       });
     }
     return startedOnline;
@@ -78,6 +94,10 @@ class AvailabilityController extends Notifier<bool> {
           // location ping will pick up next fix
         }
         ref.read(ordersControllerProvider.notifier).startPolling();
+        // Going online with the cash limit used up means COD orders will be refused.
+        unawaited(ref.read(overlayPermissionPromptProvider).check(force: true).then(
+          (_) => ref.read(cashLimitGuardProvider).check(),
+        ));
         _startTracking();
         return const Result.success(null);
       },
@@ -114,6 +134,8 @@ class AvailabilityController extends Notifier<bool> {
     // window elapses. Ping on a timer too, independent of movement.
     _keepAliveTimer?.cancel();
     _keepAliveTimer = Timer.periodic(const Duration(minutes: 3), (_) => _pingLocation());
+    _tripLocationTimer?.cancel();
+    _tripLocationTimer = Timer.periodic(const Duration(seconds: 10), (_) => _tripHeartbeat());
     // Ping immediately as well. build() starts tracking for a rider who was
     // already online without ever taking a fix (unlike goOnline, which calls
     // getCurrentPosition), so without this their first ping is 3 minutes away
@@ -148,6 +170,8 @@ class AvailabilityController extends Notifier<bool> {
     _positionSub = null;
     _keepAliveTimer?.cancel();
     _keepAliveTimer = null;
+    _tripLocationTimer?.cancel();
+    _tripLocationTimer = null;
     ref.read(locationServiceProvider).stopTracking();
 
     // The notification must go the moment the rider goes offline. A lingering
@@ -157,6 +181,11 @@ class AvailabilityController extends Notifier<bool> {
   }
 
   void _onPosition(Position position) {
+    _headingTracker.update(position);
+    // Live trip tracking first, on its own (shorter) throttle — the customer's
+    // map should not wait on the availability-ping throttle below.
+    _sendTripLocation(position);
+
     final now = DateTime.now();
     if (now.difference(_lastPing) < const Duration(seconds: 4)) return;
     _lastPing = now;
@@ -166,18 +195,45 @@ class AvailabilityController extends Notifier<bool> {
       lat: position.latitude,
       lng: position.longitude,
     );
+  }
 
+  /// Emits the socket `update-location` the backend relays to the order's
+  /// tracking room (and the customer's own room via `userId`), which is what
+  /// the customer app's live map listens to. Throttled to the backend's own
+  /// 2 s broadcast limit.
+  void _sendTripLocation(Position position, {bool force = false}) {
     final ordersState = ref.read(ordersControllerProvider);
-    if (ordersState is OrdersLoaded && ordersState.currentOrder != null) {
-      ref.read(socketServiceProvider).sendLocationUpdate(
-        orderId: ordersState.currentOrder!.id,
-        lat: position.latitude,
-        lng: position.longitude,
-        heading: position.heading,
-        speed: position.speed,
-        accuracy: position.accuracy,
-      );
-    }
+    if (ordersState is! OrdersLoaded) return;
+    final order = ordersState.currentOrder;
+    if (order == null) return;
+
+    final now = DateTime.now();
+    if (!force && now.difference(_lastTripEmit) < const Duration(seconds: 2)) return;
+    _lastTripEmit = now;
+
+    ref.read(socketServiceProvider).sendLocationUpdate(
+      orderId: order.id,
+      userId: order.customerId,
+      lat: position.latitude,
+      lng: position.longitude,
+      heading: _headingTracker.heading,
+      speed: position.speed.isFinite && position.speed > 0 ? position.speed : 0,
+      accuracy: position.accuracy,
+    );
+  }
+
+  /// The GPS stream only emits after 15 m of movement, so a rider waiting at
+  /// the restaurant or stuck in traffic would otherwise stop updating the
+  /// customer's map entirely. Re-send the last fix on a timer during a trip.
+  Future<void> _tripHeartbeat() async {
+    final ordersState = ref.read(ordersControllerProvider);
+    if (ordersState is! OrdersLoaded || ordersState.currentOrder == null) return;
+    if (DateTime.now().difference(_lastTripEmit) < const Duration(seconds: 8)) return;
+    final service = ref.read(locationServiceProvider);
+    var pos = service.lastPosition ?? await Geolocator.getLastKnownPosition();
+    if (pos == null) return;
+    service.lastPosition ??= pos;
+    _sendTripLocation(pos, force: true);
   }
 }
 

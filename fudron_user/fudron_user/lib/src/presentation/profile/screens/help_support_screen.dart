@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+// ignore: unused_import (used by the commented-out Live Chat row)
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../di/support_contact_provider.dart';
 import '../../../core/utils/haptics.dart';
 import '../../branding/app_colors.dart';
 import '../../common_widgets/app_snackbar.dart';
+// ignore: unused_import (used by the commented-out Live Chat row)
 import '../../navigation/route_names.dart';
 
 class HelpSupportScreen extends StatelessWidget {
@@ -36,7 +40,7 @@ class HelpSupportScreen extends StatelessWidget {
     final Uri launchUri = Uri(
       scheme: 'mailto',
       path: emailAddress,
-      queryParameters: {'subject': 'Support Request - Fudron App'},
+      queryParameters: {'subject': 'Support Request - Cravioo App'},
     );
     try {
       if (await canLaunchUrl(launchUri)) {
@@ -200,7 +204,7 @@ class HelpSupportScreen extends StatelessWidget {
                     ),
                     SizedBox(height: 6.h),
                     Text(
-                      'Thank you for choosing Fudron!',
+                      'Thank you for choosing Cravioo!',
                       style: TextStyle(
                         fontSize: 12.5.sp,
                         fontWeight: FontWeight.bold,
@@ -345,7 +349,7 @@ class HelpSupportScreen extends StatelessWidget {
         'icon': Icons.replay_rounded,
         'title': 'Refund & Payments',
         'subtitle': 'Queries about refunds and payments',
-        'details': 'Refunds are automatically processed to your original payment method or Fudron Wallet within 24-48 hours.',
+        'details': 'Refunds are automatically processed to your original payment method or Cravioo Wallet within 24-48 hours.',
       },
       {
         'icon': Icons.shield_outlined,
@@ -454,6 +458,16 @@ class HelpSupportScreen extends StatelessWidget {
   /// 3. Contact Us Card: Call Us (Dynamic Phone Call), Email Us (Dynamic Mail Composer), Live Chat
   Widget _buildContactUsCard(
       BuildContext context, bool isDark, Color textColor, Color secondaryTextColor) {
+    // Phone and email come from the admin's Business settings, not code.
+    return Consumer(builder: (context, ref, _) {
+    final contactAsync = ref.watch(supportContactProvider);
+    final contact = contactAsync.value ?? SupportContact.empty;
+    final phone = contact.hasPhone
+        ? contact.phone
+        : (contactAsync.isLoading ? 'Loading…' : 'Not available');
+    final email = contact.hasEmail
+        ? contact.email
+        : (contactAsync.isLoading ? 'Loading…' : 'Not available');
     return Container(
       decoration: BoxDecoration(
         color: isDark ? AppColors.surfaceDark : Colors.white,
@@ -474,7 +488,9 @@ class HelpSupportScreen extends StatelessWidget {
         children: [
           // 1. CALL US -> DYNAMIC PHONE CALL
           InkWell(
-            onTap: () => _makePhoneCall(context, '6375095971'),
+            onTap: contact.hasPhone
+                ? () => _makePhoneCall(context, contact.phone.replaceAll(' ', ''))
+                : null,
             borderRadius: BorderRadius.vertical(top: Radius.circular(16.r)),
             child: Padding(
               padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 12.h),
@@ -517,7 +533,7 @@ class HelpSupportScreen extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    '6375095971',
+                    phone,
                     style: TextStyle(
                       fontSize: 12.5.sp,
                       fontWeight: FontWeight.w800,
@@ -543,7 +559,8 @@ class HelpSupportScreen extends StatelessWidget {
 
           // 2. EMAIL US -> DYNAMIC MAIL COMPOSER
           InkWell(
-            onTap: () => _sendEmail(context, 'appzeto@gmail.com'),
+            onTap: contact.hasEmail ? () => _sendEmail(context, contact.email) : null,
+            borderRadius: BorderRadius.vertical(bottom: Radius.circular(16.r)),
             child: Padding(
               padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 12.h),
               child: Row(
@@ -584,96 +601,17 @@ class HelpSupportScreen extends StatelessWidget {
                       ],
                     ),
                   ),
-                  Text(
-                    'appzeto@gmail.com',
+                  Flexible(
+                    child: Text(
+                    email,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 11.5.sp,
                       fontWeight: FontWeight.bold,
                       color: AppColors.primary,
                     ),
                   ),
-                  SizedBox(width: 4.w),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    color: isDark ? AppColors.borderDark : const Color(0xFFCCCCCC),
-                    size: 18.sp,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Divider(
-            height: 1,
-            indent: 14.w,
-            endIndent: 14.w,
-            color: isDark ? AppColors.borderDark : const Color(0xFFF2F2F2),
-          ),
-
-          // 3. LIVE CHAT -> CHAT SCREEN
-          InkWell(
-            onTap: () {
-              Haptics.light();
-              context.push(RouteNames.chat);
-            },
-            borderRadius: BorderRadius.vertical(bottom: Radius.circular(16.r)),
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 12.h),
-              child: Row(
-                children: [
-                  Container(
-                    padding: EdgeInsets.all(8.r),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFF3E8FF),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.chat_bubble_outline_rounded,
-                      color: const Color(0xFF9333EA),
-                      size: 18.sp,
-                    ),
-                  ),
-                  SizedBox(width: 12.w),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Live Chat',
-                          style: TextStyle(
-                            fontSize: 13.5.sp,
-                            fontWeight: FontWeight.bold,
-                            color: textColor,
-                          ),
-                        ),
-                        SizedBox(height: 2.h),
-                        Text(
-                          'Chat with our support team',
-                          style: TextStyle(
-                            fontSize: 11.sp,
-                            color: secondaryTextColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 3.h),
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryTint,
-                      borderRadius: BorderRadius.circular(12.r),
-                      border: Border.all(
-                        color: AppColors.primaryTintStrong,
-                        width: 1,
-                      ),
-                    ),
-                    child: Text(
-                      'Available 9AM - 9PM',
-                      style: TextStyle(
-                        fontSize: 10.sp,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.primaryDeep,
-                      ),
-                    ),
                   ),
                   SizedBox(width: 4.w),
                   Icon(
@@ -685,9 +623,94 @@ class HelpSupportScreen extends StatelessWidget {
               ),
             ),
           ),
+          // Live Chat option hidden for now (kept for later).
+//           Divider(
+//             height: 1,
+//             indent: 14.w,
+//             endIndent: 14.w,
+//             color: isDark ? AppColors.borderDark : const Color(0xFFF2F2F2),
+//           ),
+// 
+//           // 3. LIVE CHAT -> CHAT SCREEN
+//           InkWell(
+//             onTap: () {
+//               Haptics.light();
+//               context.push(RouteNames.chat);
+//             },
+//             borderRadius: BorderRadius.vertical(bottom: Radius.circular(16.r)),
+//             child: Padding(
+//               padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 12.h),
+//               child: Row(
+//                 children: [
+//                   Container(
+//                     padding: EdgeInsets.all(8.r),
+//                     decoration: const BoxDecoration(
+//                       color: Color(0xFFF3E8FF),
+//                       shape: BoxShape.circle,
+//                     ),
+//                     child: Icon(
+//                       Icons.chat_bubble_outline_rounded,
+//                       color: const Color(0xFF9333EA),
+//                       size: 18.sp,
+//                     ),
+//                   ),
+//                   SizedBox(width: 12.w),
+//                   Expanded(
+//                     child: Column(
+//                       crossAxisAlignment: CrossAxisAlignment.start,
+//                       children: [
+//                         Text(
+//                           'Live Chat',
+//                           style: TextStyle(
+//                             fontSize: 13.5.sp,
+//                             fontWeight: FontWeight.bold,
+//                             color: textColor,
+//                           ),
+//                         ),
+//                         SizedBox(height: 2.h),
+//                         Text(
+//                           'Chat with our support team',
+//                           style: TextStyle(
+//                             fontSize: 11.sp,
+//                             color: secondaryTextColor,
+//                           ),
+//                         ),
+//                       ],
+//                     ),
+//                   ),
+//                   Container(
+//                     padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 3.h),
+//                     decoration: BoxDecoration(
+//                       color: AppColors.primaryTint,
+//                       borderRadius: BorderRadius.circular(12.r),
+//                       border: Border.all(
+//                         color: AppColors.primaryTintStrong,
+//                         width: 1,
+//                       ),
+//                     ),
+//                     child: Text(
+//                       'Available 9AM - 9PM',
+//                       style: TextStyle(
+//                         fontSize: 10.sp,
+//                         fontWeight: FontWeight.bold,
+//                         color: AppColors.primaryDeep,
+//                       ),
+//                     ),
+//                   ),
+//                   SizedBox(width: 4.w),
+//                   Icon(
+//                     Icons.chevron_right_rounded,
+//                     color: isDark ? AppColors.borderDark : const Color(0xFFCCCCCC),
+//                     size: 18.sp,
+//                   ),
+//                 ],
+//               ),
+//             ),
+//           ),
         ],
       ),
     );
+    });
   }
 
   /// 4. Support Information Card: Support Hours | Response Time | We Care

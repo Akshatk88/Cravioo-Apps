@@ -1,3 +1,4 @@
+import 'package:food_user_application/core/widgets/coming_soon_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +8,7 @@ import 'package:food_user_application/features/main/presentation/screens/main_sc
 import 'package:food_user_application/features/profile/presentation/screens/driver_details_screen.dart';
 import 'package:food_user_application/features/profile/presentation/screens/driver_id_card_screen.dart';
 import 'package:food_user_application/features/notifications/presentation/screens/notifications_screen.dart';
+// ignore: unused_import (Refer & Earn is on "Coming soon" for now)
 import 'package:food_user_application/features/refer_earn/presentation/screens/refer_earn_screen.dart';
 import 'package:food_user_application/features/refer_earn/presentation/screens/referral_ticket_result_screen.dart';
 import 'package:food_user_application/features/store99/presentation/screens/store99_screen.dart';
@@ -50,7 +52,9 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/refer-earn',
-        builder: (context, state) => const ReferEarnScreen(),
+        // Refer & Earn is switched off for now: show "Coming soon".
+        // builder: (context, state) => const ReferEarnScreen(),
+        builder: (context, state) => const ComingSoonScreen(title: 'Refer & Earn'),
         routes: [
           GoRoute(
             path: 'ticket',

@@ -44,9 +44,10 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
       }
     } catch (e) {
       if (mounted) {
-        final message = e is ApiException
-            ? e.message
-            : 'Failed to submit feedback. Please try again.';
+        final message = ApiException.messageOf(
+          e,
+          fallback: 'Failed to submit feedback. Please try again.',
+        );
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message), backgroundColor: AppColors.error),
         );

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../data/models/delivery_order.dart';
+import 'order_summary_section.dart';
 
 class IncomingOrderBottomSheet extends StatefulWidget {
   final DeliveryOrder order;
@@ -174,7 +175,21 @@ class _IncomingOrderBottomSheetState
                     ),
                   ],
                 ),
-                SizedBox(height: 32.h),
+                SizedBox(height: 18.h),
+                const Divider(color: Colors.white12, height: 1),
+                SizedBox(height: 18.h),
+                // The customer's order, so the rider sees what and where before
+                // accepting. Capped and scrollable so a long order never pushes
+                // the Accept button off screen.
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(context).height * 0.32,
+                  ),
+                  child: SingleChildScrollView(
+                    child: OrderSummarySection(order: order, dark: true, maxItems: 4),
+                  ),
+                ),
+                SizedBox(height: 24.h),
                 // Accept button
                 SizedBox(
                   width: double.infinity,

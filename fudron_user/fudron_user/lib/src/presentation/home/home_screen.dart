@@ -1274,9 +1274,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
                     SizedBox(height: 24.h),
 
+                    // "Coming soon" badge for locations outside every zone.
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(30.r),
+                        border: Border.all(
+                          color: AppColors.primary.withValues(alpha: 0.35),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.rocket_launch_rounded,
+                              size: 16.sp, color: AppColors.primary),
+                          SizedBox(width: 6.w),
+                          Text(
+                            'Coming soon to this location',
+                            style: TextStyle(
+                              fontSize: 13.sp,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    SizedBox(height: 16.h),
+
                     // Heading
                     Text(
-                      "We don't deliver here",
+                      "We don't deliver here yet",
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 22.sp,
@@ -1292,7 +1322,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     Padding(
                       padding: EdgeInsets.symmetric(horizontal: 16.w),
                       child: Text(
-                        "We are currently not serving in this location. Please change your location to explore restaurants in your area.",
+                        "Cravioo is not serving this location yet - we are coming here soon! Meanwhile, change your location to explore restaurants in your area.",
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 14.sp,

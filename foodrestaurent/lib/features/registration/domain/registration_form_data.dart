@@ -10,6 +10,11 @@ final _pincodeRegex = RegExp(r'^\d{6}$');
 /// in-place by the step widgets — see that controller for why this isn't a
 /// `copyWith` immutable model.
 class RegistrationFormData {
+  /// True when this form onboards another outlet of an existing owner. Owner
+  /// details, PAN, bank and zone then come from the owner account server-side,
+  /// so the wizard neither asks for nor validates them.
+  bool isAdditionalOutlet = false;
+
   // Step 1 — restaurant + owner
   String restaurantName = '';
   bool? pureVegRestaurant;
@@ -60,7 +65,7 @@ class RegistrationFormData {
 
   bool get isStep1Valid =>
       restaurantName.trim().isNotEmpty &&
-      ownerName.trim().isNotEmpty &&
+      (isAdditionalOutlet || ownerName.trim().isNotEmpty) &&
       pureVegRestaurant != null &&
       (ownerEmail.trim().isEmpty || _emailRegex.hasMatch(ownerEmail.trim()));
 
@@ -92,7 +97,8 @@ class RegistrationFormData {
       case 0:
         return [
           if (restaurantName.trim().isEmpty) 'Restaurant name',
-          if (ownerName.trim().isEmpty) 'Owner full name',
+          if (!isAdditionalOutlet && ownerName.trim().isEmpty)
+            'Owner full name',
           if (pureVegRestaurant == null) 'Pure veg selection (Yes/No)',
           if (ownerEmail.trim().isNotEmpty &&
               !_emailRegex.hasMatch(ownerEmail.trim()))

@@ -1,6 +1,7 @@
 package com.cravioo.restaurant
 
 import android.content.Intent
+import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -9,12 +10,34 @@ class MainActivity : FlutterActivity() {
 
     private val ORDER_ACTION_CHANNEL = "app.foodrestaurant/new_order_action"
 
+    override fun onResume() {
+        super.onResume()
+        AppForeground.isForeground = true
+        // The restaurant is in the app now; the in-app dialog takes over.
+        NewOrderOverlay.dismiss(null)
+    }
+
+    override fun onPause() {
+        AppForeground.isForeground = false
+        super.onPause()
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // So a push that Android draws itself (app closed) lands in a loud channel
+        // instead of the silent default one.
+        NewOrderNotifier.ensureChannels(applicationContext)
+    }
+
     /**
      * Held so a decision arriving from the notification can be pushed at Dart
      * immediately, instead of waiting for the next time Dart happens to poll.
      */
     private var actionChannel: MethodChannel? = null
     private var pendingIncomingOrderId: String? = null
+
+    /** Outlet the tapped alert belongs to, read by Dart together with the order id. */
+    private var pendingIncomingRestaurantId: String? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -23,6 +46,8 @@ class MainActivity : FlutterActivity() {
         val initialHandled = intent?.getBooleanExtra("orderActionHandled", false) ?: false
         if (!initialOrderId.isNullOrBlank() && !initialHandled) {
             pendingIncomingOrderId = initialOrderId
+            pendingIncomingRestaurantId =
+                intent?.getStringExtra(NewOrderNotifier.EXTRA_RESTAURANT_ID)?.takeIf { it.isNotBlank() }
         }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ORDER_ACTION_CHANNEL)
@@ -49,6 +74,11 @@ class MainActivity : FlutterActivity() {
                             val id = pendingIncomingOrderId
                             pendingIncomingOrderId = null
                             result.success(id)
+                        }
+                        "consumePendingIncomingOutlet" -> {
+                            val outletId = pendingIncomingRestaurantId
+                            pendingIncomingRestaurantId = null
+                            result.success(outletId)
                         }
                         "dismissOrderAlert" -> {
                             NewOrderNotifier.dismiss(
@@ -90,6 +120,8 @@ class MainActivity : FlutterActivity() {
         val orderId = intent.getStringExtra(NewOrderNotifier.EXTRA_ORDER_ID)
         if (!orderId.isNullOrBlank() && !handled) {
             pendingIncomingOrderId = orderId
+            pendingIncomingRestaurantId =
+                intent.getStringExtra(NewOrderNotifier.EXTRA_RESTAURANT_ID)?.takeIf { it.isNotBlank() }
             actionChannel?.invokeMethod("onIncomingOrder", orderId)
         }
     }

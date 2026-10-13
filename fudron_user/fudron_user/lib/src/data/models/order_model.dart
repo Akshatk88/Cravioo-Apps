@@ -397,6 +397,7 @@ class OrderModel {
     'cancelled_by_user',
     'cancelled_by_restaurant',
     'cancelled_by_admin',
+    'cancelled_by_system',
     'rejected',
     'failed',
     'expired',
@@ -415,9 +416,12 @@ class OrderModel {
       ? itemTotal
       : items.fold<double>(0, (sum, item) => sum + item.lineTotal);
 
+  // Any cancelled_* status is finished, including ones this list does not name
+  // (cancelled_by_system used to slip through and be shown as a live order).
   bool get isActive =>
-      _activeStatuses.contains(orderStatus) ||
-      (orderStatus.isNotEmpty && !_terminal.contains(orderStatus));
+      !orderStatus.startsWith('cancelled') &&
+      (_activeStatuses.contains(orderStatus) ||
+          (orderStatus.isNotEmpty && !_terminal.contains(orderStatus)));
   bool get isCancelled => orderStatus.startsWith('cancelled');
   bool get isDelivered => orderStatus == 'delivered';
 
@@ -480,9 +484,13 @@ class OrderModel {
       case 'cancelled_by_restaurant':
         return 'Cancelled by restaurant';
       case 'cancelled_by_admin':
-        return 'Cancelled';
+      case 'cancelled_by_system':
+        return 'Order cancelled';
       default:
-        return orderStatus;
+        // Never show a raw enum ("some_status_name") to a customer.
+        if (orderStatus.isEmpty) return orderStatus;
+        final spaced = orderStatus.replaceAll('_', ' ');
+        return spaced[0].toUpperCase() + spaced.substring(1);
     }
   }
 

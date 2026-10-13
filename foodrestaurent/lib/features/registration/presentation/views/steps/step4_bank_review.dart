@@ -44,6 +44,7 @@ class _Step4BankReviewState extends ConsumerState<Step4BankReview> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
       children: [
+        if (!form.isAdditionalOutlet) ...[
         _sectionCard(
           title: 'Bank details',
           subtitle:
@@ -98,6 +99,7 @@ class _Step4BankReviewState extends ConsumerState<Step4BankReview> {
           ],
         ),
         const SizedBox(height: 20),
+        ],
         _sectionCard(
           title: 'Review your application',
           children: [

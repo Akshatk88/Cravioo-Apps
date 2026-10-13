@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 3.2.3+8
+version: 1.0.0+3
 
 environment:
   sdk: ^3.11.4
@@ -105,9 +105,13 @@ flutter:
     - assets/explore more icons/
     - assets/audio/
 
-# Launcher Icons Configuration for Lagech App
+# Launcher Icons Configuration (new Cravioo wordmark on cream)
 flutter_launcher_icons:
-  image_path: "assets/images/logo.jpeg"
+  image_path: "assets/images/icon_square.png"
   android: true
   ios: true
   remove_alpha_ios: true
+  min_sdk_android: 21
+  adaptive_icon_foreground: "assets/images/icon_foreground.png"
+  adaptive_icon_foreground_inset: 0
+  adaptive_icon_background: "#F9EACB"

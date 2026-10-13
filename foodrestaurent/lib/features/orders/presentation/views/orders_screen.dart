@@ -11,6 +11,8 @@ import 'package:food_user_application/features/notifications/presentation/contro
 import 'package:food_user_application/features/orders/domain/order_model.dart';
 import 'package:food_user_application/features/orders/presentation/controllers/live_orders_controller.dart';
 import 'package:food_user_application/features/orders/presentation/widgets/live_order_card.dart'; // NEW
+import 'package:food_user_application/features/outlets/presentation/widgets/outlet_bar.dart';
+import 'package:food_user_application/features/outlets/presentation/widgets/order_outlet_label.dart';
 import 'package:food_user_application/features/restaurant_profile/presentation/controllers/restaurant_profile_controller.dart';
 import 'package:food_user_application/core/widgets/app_refresh_indicator.dart';
 import 'package:food_user_application/core/widgets/app_drawer.dart';
@@ -51,6 +53,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
         appBar: _buildAppBar(context),
         body: Column(
           children: [
+            const OutletBar(),
             _buildTabBar(context),
             Expanded(
               child: ordersAsync.when(
@@ -134,6 +137,15 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
     );
   }
 
+  /// Space under the last card. The bottom nav floats over the body
+  /// (`extendBody`), so the list must end above it: the nav's own height (which the
+  /// shell reports as the bottom inset) plus breathing room, never less than 120.
+  double _listBottomPadding(BuildContext context) {
+    final inset = MediaQuery.paddingOf(context).bottom;
+    final wanted = inset + 32;
+    return wanted > 120 ? wanted : 120;
+  }
+
   Widget _buildLiveOrderList(
     BuildContext context,
     List<OrderModel> orders, {
@@ -181,7 +193,9 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
               ],
             )
           : ListView.separated(
-              padding: const EdgeInsets.all(16),
+              // Bottom space clears the floating nav bar (extendBody), else the last
+              // card sits under it and cannot be scrolled into view.
+              padding: EdgeInsets.fromLTRB(16, 16, 16, _listBottomPadding(context)),
               itemCount: orders.length + 1, // +1 for header
               separatorBuilder: (context, index) => const SizedBox(height: 16),
               itemBuilder: (context, index) {
@@ -257,7 +271,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
               ],
             )
           : ListView.separated(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.fromLTRB(16, 16, 16, _listBottomPadding(context)),
               itemCount: orders.length + 1, // +1 for banner
               separatorBuilder: (context, index) => const SizedBox(height: 16),
               itemBuilder: (context, index) {
@@ -676,6 +690,7 @@ class _OrderCard extends ConsumerWidget {
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
+                            OrderOutletLabel(restaurantId: order.restaurantId),
                             const SizedBox(height: 2),
                             if (order.customerPhone.isNotEmpty)
                               Text(

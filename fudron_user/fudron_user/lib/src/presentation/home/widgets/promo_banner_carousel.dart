@@ -7,7 +7,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/utils/haptics.dart';
 import '../../../data/models/promo_banner_model.dart';
-import '../../branding/app_colors.dart';
 import '../../common_widgets/smart_image.dart';
 
 /// Auto-rotating carousel of admin-uploaded promo banners.
@@ -138,29 +137,7 @@ class _PromoBannerCarouselState extends State<PromoBannerCarousel> {
             ),
           ),
         ),
-        // Dots are pointless for a single banner — they would imply there is
-        // something else to swipe to.
-        if (widget.banners.length > 1) ...[
-          SizedBox(height: 10.h),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(widget.banners.length, (i) {
-              final active = i == _index;
-              return AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                margin: EdgeInsets.symmetric(horizontal: 3.w),
-                width: active ? 18.w : 6.w,
-                height: 6.h,
-                decoration: BoxDecoration(
-                  color: active
-                      ? AppColors.primary
-                      : AppColors.primary.withValues(alpha: 0.25),
-                  borderRadius: BorderRadius.circular(3.r),
-                ),
-              );
-            }),
-          ),
-        ],
+        // Carousel page dots removed (not wanted in the app).
       ],
     );
   }

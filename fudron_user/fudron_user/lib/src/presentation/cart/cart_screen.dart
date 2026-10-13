@@ -171,7 +171,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
         return;
       }
 
-      // Fudron Wallet balance validation
+      // Cravioo Wallet balance validation
       if (_selectedPaymentMethod == 'wallet') {
         final walletState = ref.read(walletViewModelProvider);
         final walletBalance = walletState.wallet.balance;
@@ -2562,7 +2562,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
 
                       // Flagged only when the wallet is the chosen method: see
                       // the subtitle note below.
-                      // Option 3: Fudron Wallet — watches the provider directly
+                      // Option 3: Cravioo Wallet — watches the provider directly
                       // rather than the `walletBalance` captured when the sheet
                       // was opened, so the refresh triggered above actually
                       // reaches this tile once it resolves.
@@ -2853,7 +2853,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
         break;
       case 'wallet':
         paymentIcon = Icons.account_balance_wallet_outlined;
-        paymentDisplay = 'Fudron Wallet (₹${walletBalance.toStringAsFixed(0)})';
+        paymentDisplay = 'Cravioo Wallet (₹${walletBalance.toStringAsFixed(0)})';
         break;
       case 'razorpay':
       default:

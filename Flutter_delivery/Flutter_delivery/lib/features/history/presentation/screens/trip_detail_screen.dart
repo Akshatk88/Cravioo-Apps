@@ -50,6 +50,22 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen> {
   String get _time => _s('time');
   String get _date => _s('date');
 
+  static const _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  /// "6 Oct 2026 · 11:15 pm". The summary's `date` is a raw ISO timestamp
+  /// ("2026-10-06T17:45:29.225Z"), which was printed as-is under the status.
+  String get _whenLabel {
+    final parsed = DateTime.tryParse(_date)?.toLocal();
+    if (parsed == null) {
+      return [_date, _time].where((e) => e.isNotEmpty).join(' · ');
+    }
+    final day = '${parsed.day} ${_months[parsed.month - 1]} ${parsed.year}';
+    if (_time.isNotEmpty) return '$day · $_time';
+    final h = parsed.hour % 12 == 0 ? 12 : parsed.hour % 12;
+    final m = parsed.minute.toString().padLeft(2, '0');
+    return '$day · $h:$m ${parsed.hour < 12 ? 'am' : 'pm'}';
+  }
+
   /// The Mongo `_id` (not the human-readable order code) is what
   /// `GET /orders/:id` expects — prefer it over `orderId` for the fetch.
   String get _fetchId => _s('_id', 'id', 'orderId');
@@ -121,7 +137,7 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen> {
         slivers: [
           SliverToBoxAdapter(
             child: Container(
-              padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 8.h, bottom: 44.h),
+              padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 8.h, bottom: 24.h),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
@@ -166,7 +182,7 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen> {
                   SizedBox(height: 4.h),
                   if (_time.isNotEmpty || _date.isNotEmpty)
                     Text(
-                      [_date, _time].where((e) => e.isNotEmpty).join(' · '),
+                      _whenLabel,
                       style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 12.sp),
                     ),
                   SizedBox(height: 10.h),
@@ -187,8 +203,11 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen> {
             ),
           ),
           SliverToBoxAdapter(
-            child: Transform.translate(
-              offset: Offset(0, -28.h),
+            // Sits below the header now. It used to be pulled up 28px into the header
+            // with Transform.translate, which only moves the paint: the card's top
+            // was hidden under the green header and the layout height was wrong.
+            child: Padding(
+              padding: EdgeInsets.only(top: 16.h),
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16.w),
                 child: Column(
@@ -269,7 +288,7 @@ class _TripDetailScreenState extends ConsumerState<TripDetailScreen> {
                         ],
                       ),
                     ],
-                    SizedBox(height: 32.h),
+                    SizedBox(height: 32.h + MediaQuery.of(context).padding.bottom),
                   ],
                 ),
               ),

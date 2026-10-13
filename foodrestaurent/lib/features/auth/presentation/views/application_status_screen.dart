@@ -1,3 +1,4 @@
+import 'package:food_user_application/core/widgets/account_actions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -103,6 +104,7 @@ class ApplicationStatusScreen extends ConsumerWidget {
                 height: 56,
                 child: OutlinedButton(
                   onPressed: () async {
+                    if (!await confirmLogoutDialog(context)) return;
                     await ref.read(authControllerProvider.notifier).logout();
                     if (context.mounted) context.go('/login');
                   },

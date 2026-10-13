@@ -74,7 +74,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
           },
         ),
         title: Text(
-          'Fudron Wallet',
+          'Cravioo Wallet',
           style: TextStyle(
             color: textColor,
             fontSize: 18,
@@ -316,7 +316,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
 
               const SizedBox(width: 8),
 
-              // Fudron Pay badge
+              // Cravioo Pay badge
               Flexible(
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -338,7 +338,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                       SizedBox(width: 4),
                       Flexible(
                         child: Text(
-                          'Fudron Pay',
+                          'Cravioo Pay',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -569,7 +569,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Why use Fudron Wallet?',
+                  'Why use Cravioo Wallet?',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -1127,7 +1127,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                       const SizedBox(height: 16),
 
                       Text(
-                        'Add Money to Fudron Wallet',
+                        'Add Money to Cravioo Wallet',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
-import '../../core/config/api_config.dart';
+import '../../core/constants/app_constants.dart';
 
 /// Events the user app cares about. `new_order`, `order_claimed` and friends
 /// are restaurant/rider/admin events and are deliberately ignored.
@@ -57,19 +57,33 @@ class SocketService {
   Stream<ChatSocketMessage> get chatTyping => _chatTypingController.stream;
   bool get isConnected => _socket?.connected ?? false;
 
+  /// Supplies a fresh access token when the server rejects the handshake.
+  Future<String?> Function()? _tokenProvider;
+  int _authRetries = 0;
+  static const _maxAuthRetries = 5;
+
   /// Connects (or reconnects, if the token changed) once for the app.
-  void connect(String accessToken) {
+  ///
+  /// [tokenProvider] lets the socket pick up a refreshed access token: the
+  /// handshake token is otherwise fixed at first connect, so once it expired
+  /// every reconnect was rejected (AUTH_INVALID) for the rest of the session.
+  void connect(String accessToken, {Future<String?> Function()? tokenProvider}) {
+    if (tokenProvider != null) _tokenProvider = tokenProvider;
     if (_socket != null) return;
 
     try {
       final socket = io.io(
-        ApiConfig.host,
+        AppConstants.socketUrl,
         io.OptionBuilder()
             // Keep 'polling' first — some networks block the initial
             // websocket upgrade handshake.
             .setTransports(['polling', 'websocket'])
             .setAuth({'token': accessToken})
             .disableAutoConnect()
+            // socket_io_client caches one Manager per URL and hands back its
+            // existing namespace socket — after logout/login that was the old,
+            // disposed socket still carrying the previous user's token.
+            .enableForceNew()
             .enableReconnection()
             .setReconnectionAttempts(1 << 30)
             .setReconnectionDelay(2000)
@@ -81,6 +95,7 @@ class SocketService {
       // resumes tracking automatically without any caller doing anything.
       socket.onConnect((_) {
         _log('connected');
+        _authRetries = 0;
         for (final id in _trackedOrderIds) {
           socket.emit('join-tracking', id);
         }
@@ -99,7 +114,10 @@ class SocketService {
       socket.on('chat:message', (d) => _emitChat(_chatMessageController, d));
       socket.on('chat:typing', (d) => _emitChat(_chatTypingController, d));
 
-      socket.onConnectError((e) => _log('connect error: $e'));
+      socket.onConnectError((e) {
+        _log('connect error: $e');
+        unawaited(_refreshAuth(socket, e));
+      });
       socket.onError((e) => _log('error: $e'));
 
       socket.connect();
@@ -108,6 +126,32 @@ class SocketService {
       // Polling covers us; never surface a socket failure to the UI.
       _log('socket unavailable: $e');
     }
+  }
+
+  /// Swaps in the latest access token after a failed handshake.
+  ///
+  /// Transport errors (e.g. `timeout`) are retried by the manager itself, so
+  /// only the auth is refreshed. A middleware rejection (`AUTH_*`) is final for
+  /// that attempt in Socket.IO, so it also re-dials — a bounded number of times
+  /// so a permanently invalid session does not loop.
+  Future<void> _refreshAuth(io.Socket socket, dynamic error) async {
+    final provider = _tokenProvider;
+    if (provider == null) return;
+    String? token;
+    try {
+      token = await provider();
+    } catch (_) {
+      return;
+    }
+    if (token == null || token.isEmpty || !identical(_socket, socket)) return;
+    socket.auth = {'token': token};
+
+    final isAuthError = error.toString().contains('AUTH_');
+    if (!isAuthError || socket.connected) return;
+    if (_authRetries >= _maxAuthRetries) return;
+    _authRetries++;
+    await Future<void>.delayed(Duration(seconds: 2 * _authRetries));
+    if (identical(_socket, socket) && !socket.connected) socket.connect();
   }
 
   /// Joins `tracking:<orderId>` — the server verifies the order actually

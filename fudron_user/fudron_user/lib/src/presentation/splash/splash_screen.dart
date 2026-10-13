@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:food_user_application/src/core/services/update_service.dart';
+import 'package:food_user_application/src/presentation/auth/viewmodels/auth_viewmodel.dart';
 import 'package:food_user_application/src/presentation/navigation/route_names.dart';
 
-class SplashScreen extends StatefulWidget {
+class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
   @override
-  State<SplashScreen> createState() => _SplashScreenState();
+  ConsumerState<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen>
+class _SplashScreenState extends ConsumerState<SplashScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _progressAnimation;
@@ -38,12 +40,24 @@ class _SplashScreenState extends State<SplashScreen>
     );
 
     _animationController.forward().then((_) {
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) {
-          context.go(RouteNames.home);
-        }
-      });
+      Future.delayed(const Duration(milliseconds: 500), _goNext);
     });
+  }
+
+  /// Login first: a signed-in user goes to Home, anyone else to the login
+  /// screen (it used to send everyone straight to Home).
+  Future<void> _goNext() async {
+    if (!mounted) return;
+    var auth = ref.read(authViewModelProvider);
+    // Session restore may still be running; give it a moment, not forever.
+    for (var i = 0; i < 25 && auth.isLoading; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      if (!mounted) return;
+      auth = ref.read(authViewModelProvider);
+    }
+    if (!mounted) return;
+    final signedIn = auth.value != null;
+    context.go(signedIn ? RouteNames.home : RouteNames.login);
   }
 
   @override
@@ -88,7 +102,7 @@ class _SplashScreenState extends State<SplashScreen>
                         height: 2,
                         width: double.infinity,
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.3),
+                          color: const Color(0xFF1FA84F).withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(2),
                         ),
                         alignment: Alignment.centerLeft,
@@ -97,20 +111,10 @@ class _SplashScreenState extends State<SplashScreen>
                           child: Container(
                             height: 3.5,
                             decoration: BoxDecoration(
-                              color: Colors.white,
+                              color: const Color(0xFF1FA84F),
                               borderRadius: BorderRadius.circular(2),
                             ),
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        "Cravioo - Food Delivered Fast",
-                        style: TextStyle(
-                          color: Color(0xFFFFB300), // Mangoish Yellow color
-                          fontSize: 10, // Text ko thoda chota kiya hai
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 1.0,
                         ),
                       ),
                     ],

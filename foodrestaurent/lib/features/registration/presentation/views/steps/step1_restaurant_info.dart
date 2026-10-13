@@ -88,6 +88,7 @@ class _Step1RestaurantInfoState extends ConsumerState<Step1RestaurantInfo> {
             ),
           ],
         ),
+        if (!form.isAdditionalOutlet) ...[
         const SizedBox(height: 20),
         _sectionCard(
           title: 'Owner details',
@@ -141,6 +142,7 @@ class _Step1RestaurantInfoState extends ConsumerState<Step1RestaurantInfo> {
             ),
           ],
         ),
+        ],
       ],
     );
   }

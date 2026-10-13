@@ -74,7 +74,7 @@ object NewOrderRingtone {
         requestAudioFocus(context, attributes)
 
         try {
-            val afd = context.resources.openRawResourceFd(R.raw.tujh_bin)
+            val afd = context.resources.openRawResourceFd(R.raw.tujh_bin1)
             player = MediaPlayer().apply {
                 setAudioAttributes(attributes)
                 setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
@@ -93,7 +93,7 @@ object NewOrderRingtone {
         } catch (t: Throwable) {
             Log.e(TAG, "ringtone failed with raw descriptor, falling back to MediaPlayer.create", t)
             try {
-                player = MediaPlayer.create(context, R.raw.tujh_bin)?.apply {
+                player = MediaPlayer.create(context, R.raw.tujh_bin1)?.apply {
                     setAudioAttributes(attributes)
                     isLooping = true
                     start()

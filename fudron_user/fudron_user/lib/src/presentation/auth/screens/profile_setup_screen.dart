@@ -99,11 +99,33 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
     final secondary = isDark ? AppColors.textSecondaryDark : const Color(0xFF757575);
     final bg = isDark ? AppColors.backgroundDark : const Color(0xFFFAF9F6);
 
-    return Scaffold(
-      backgroundColor: bg,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+    // Same background as the splash / login screens (light theme), painted
+    // behind the whole Scaffold so it fills the screen edge to edge — also
+    // under the keyboard — instead of leaving a white strip at the bottom.
+    return Container(
+      constraints: const BoxConstraints.expand(),
+      decoration: isDark
+          ? BoxDecoration(color: bg)
+          : const BoxDecoration(
+              color: Color(0xFFFBF7E4),
+              image: DecorationImage(
+                image: AssetImage('assets/images/login_screen.png'),
+                fit: BoxFit.cover,
+                alignment: Alignment.topCenter,
+              ),
+            ),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SafeArea(
+        // The scroll area starts below the logo printed on the background, so
+        // when the keyboard pushes the form up nothing scrolls over the logo
+        // (the progress lines used to slide across it).
+        child: Padding(
+          padding: EdgeInsets.only(
+            top: isDark ? 0 : MediaQuery.sizeOf(context).height * 0.12,
+          ),
+          child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(24, isDark ? 32 : 16, 24, 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -211,6 +233,8 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
           ),
         ),
       ),
+      ),
+      ),
     );
   }
 
@@ -234,15 +258,24 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
       children: [
         Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: textColor)),
         const SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            color: isDark ? AppColors.cardDark : Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: error != null
-                  ? const Color(0xFFE53935)
-                  : (isDark ? AppColors.borderDark : const Color(0xFFE5E7EB)),
+        // One border only: the box's. It turns green while the field has focus.
+        ListenableBuilder(
+          listenable: focusNode,
+          builder: (context, child) => AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.cardDark : Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                width: focusNode.hasFocus ? 1.6 : 1,
+                color: error != null
+                    ? const Color(0xFFE53935)
+                    : focusNode.hasFocus
+                        ? _orange
+                        : (isDark ? AppColors.borderDark : const Color(0xFFE5E7EB)),
+              ),
             ),
+            child: child,
           ),
           child: TextField(
             controller: controller,
@@ -256,7 +289,15 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
               hintText: hint,
               hintStyle: TextStyle(fontSize: 14, color: secondary, fontWeight: FontWeight.w400),
               prefixIcon: Icon(icon, color: _orange, size: 20),
+              // The app theme's enabled/focused borders would otherwise draw a
+              // second box inside the container above.
               border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              errorBorder: InputBorder.none,
+              focusedErrorBorder: InputBorder.none,
+              disabledBorder: InputBorder.none,
+              filled: false,
               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
             ),
           ),

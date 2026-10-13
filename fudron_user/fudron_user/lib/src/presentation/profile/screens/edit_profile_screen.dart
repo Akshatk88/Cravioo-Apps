@@ -25,7 +25,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   late TextEditingController _nameController;
   late TextEditingController _phoneController;
   late TextEditingController _emailController;
-  DateTime _selectedDob = DateTime(2001, 1, 16);
+  /// The user's saved date of birth, or null until they pick one (never a
+  /// made-up default that Save would write to their account).
+  DateTime? _selectedDob;
   String _selectedLanguage = 'English';
   
   File? _pickedImageFile;
@@ -42,6 +44,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     _phoneController = TextEditingController(text: user?.phone ?? '');
     _emailController = TextEditingController(text: user?.email ?? '');
     _selectedAvatarUrl = user?.avatarUrl;
+    final dob = DateTime.tryParse(user?.dateOfBirth ?? '');
+    if (dob != null) _selectedDob = DateTime(dob.year, dob.month, dob.day);
   }
 
   @override
@@ -92,7 +96,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         final textColor = isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
 
         return Container(
-          padding: EdgeInsets.fromLTRB(20.w, 20.h, 20.w, 24.h),
+          // Clear the phone's navigation bar under the sheet.
+          padding: EdgeInsets.fromLTRB(
+            20.w, 20.h, 20.w, 24.h + MediaQuery.viewPaddingOf(ctx).bottom),
           decoration: BoxDecoration(
             color: isDark ? AppColors.surfaceDark : Colors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(24.r)),
@@ -254,7 +260,17 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
             return Padding(
             padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
             child: Container(
-              padding: EdgeInsets.all(20.r),
+              // With the keyboard closed the sheet sits on the navigation bar:
+              // keep the Update button above it instead of cut off under it.
+              padding: EdgeInsets.fromLTRB(
+                20.r,
+                20.r,
+                20.r,
+                20.r +
+                    (MediaQuery.viewInsetsOf(ctx).bottom > 0
+                        ? 0
+                        : MediaQuery.viewPaddingOf(ctx).bottom),
+              ),
               decoration: BoxDecoration(
                 color: isDark ? AppColors.surfaceDark : Colors.white,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(24.r)),
@@ -313,7 +329,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     Haptics.light();
     final picked = await showDatePicker(
       context: context,
-      initialDate: _selectedDob,
+      initialDate: _selectedDob ?? DateTime(2000, 1, 1),
       firstDate: DateTime(1950),
       lastDate: DateTime.now(),
       builder: (context, child) {
@@ -343,7 +359,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       builder: (ctx) {
         final isDark = Theme.of(ctx).brightness == Brightness.dark;
         return Container(
-          padding: EdgeInsets.all(20.r),
+          padding: EdgeInsets.fromLTRB(
+            20.r, 20.r, 20.r, 20.r + MediaQuery.viewPaddingOf(ctx).bottom),
           decoration: BoxDecoration(
             color: isDark ? AppColors.surfaceDark : Colors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(24.r)),
@@ -379,6 +396,14 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     ];
     return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
   }
+
+  /// `2001-01-16` — the only format the profile API accepts for dateOfBirth
+  /// (the display form "16 January 2001" was being sent and rejected as an
+  /// invalid date).
+  String _isoDate(DateTime dt) =>
+      '${dt.year.toString().padLeft(4, '0')}-'
+      '${dt.month.toString().padLeft(2, '0')}-'
+      '${dt.day.toString().padLeft(2, '0')}';
 
   Future<void> _saveChanges() async {
     Haptics.success();
@@ -427,7 +452,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
           email: _emailController.text.trim(),
           phone: _phoneController.text.trim(),
           avatarUrl: avatarUrlToSave,
-          dateOfBirth: _formatDate(_selectedDob),
+          // Backend wants YYYY-MM-DD; only sent once the user has one.
+          dateOfBirth: _selectedDob == null ? null : _isoDate(_selectedDob!),
         );
 
     if (!mounted) return;
@@ -668,7 +694,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                     _buildEditableRow(
                       icon: Icons.calendar_today_outlined,
                       label: 'Date of Birth',
-                      value: _formatDate(_selectedDob),
+                      value: _selectedDob == null
+                          ? 'Select date'
+                          : _formatDate(_selectedDob!),
                       textColor: textColor,
                       secondaryTextColor: secondaryTextColor,
                       isDark: isDark,

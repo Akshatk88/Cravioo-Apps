@@ -7,7 +7,6 @@ import 'package:intl/intl.dart';
 import 'package:food_user_application/config/theme/app_colors.dart';
 import 'package:food_user_application/core/network/api_exception.dart';
 import 'package:food_user_application/features/finance/domain/finance_model.dart';
-import 'package:food_user_application/features/finance/domain/subscription_invoice_model.dart';
 import 'package:food_user_application/features/finance/domain/withdrawal_model.dart';
 import 'package:food_user_application/features/finance/presentation/controllers/finance_controller.dart';
 import 'package:food_user_application/features/restaurant_profile/presentation/controllers/restaurant_profile_controller.dart';
@@ -362,17 +361,9 @@ class _PayoutsScreenState extends ConsumerState<PayoutsScreen> {
             children: [
               _buildInvoiceSummaryCard(finance, dark),
 
-              if (finance.subscriptionDueAmount > 0) ...[
-                const SizedBox(height: 14),
-
-                _buildSubscriptionDueCard(finance, dark),
-              ],
-
               const SizedBox(height: 18),
 
               _buildOrderInvoiceCard(context, finance, dark),
-
-              _buildSubscriptionInvoicesSection(context, dark),
             ],
           ),
         );
@@ -586,56 +577,6 @@ class _PayoutsScreenState extends ConsumerState<PayoutsScreen> {
   }
 
   // ============================================================
-  // SUBSCRIPTION DUE
-  // ============================================================
-
-  Widget _buildSubscriptionDueCard(FinanceModel finance, bool dark) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        color: dark
-            ? AppColors.error.withValues(alpha: 0.12)
-            : AppColors.errorLight,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.error.withValues(alpha: 0.20)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: _surface(dark),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.warning_amber_rounded,
-              color: AppColors.error,
-              size: 21,
-            ),
-          ),
-
-          const SizedBox(width: 10),
-
-          Expanded(
-            child: Text(
-              'Subscription due: '
-              '₹${finance.subscriptionDueAmount.toStringAsFixed(2)}'
-              '${finance.lockedMonths.isNotEmpty ? ' (${finance.lockedMonths})' : ''}',
-              style: TextStyle(
-                color: _primaryText(dark),
-                fontSize: 12.5,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
   // ORDER INVOICE
   // ============================================================
 
@@ -835,171 +776,6 @@ class _PayoutsScreenState extends ConsumerState<PayoutsScreen> {
   }
 
   // ============================================================
-  // SUBSCRIPTION INVOICES
-  // ============================================================
-
-  Widget _buildSubscriptionInvoicesSection(BuildContext context, bool dark) {
-    final invoicesAsync = ref.watch(subscriptionInvoicesControllerProvider);
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Subscription invoices',
-            style: TextStyle(
-              color: _primaryText(dark),
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-
-          const SizedBox(height: 11),
-
-          invoicesAsync.when(
-            loading: () => Center(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: CircularProgressIndicator(color: _primary(dark)),
-              ),
-            ),
-
-            error: (error, _) => Text(
-              error is ApiException
-                  ? error.message
-                  : 'Failed to load subscription invoices.',
-              style: const TextStyle(color: AppColors.error, fontSize: 12.5),
-            ),
-
-            data: (invoices) {
-              if (invoices.isEmpty) {
-                return Text(
-                  'No subscription invoices yet.',
-                  style: TextStyle(color: _secondaryText(dark), fontSize: 12.5),
-                );
-              }
-
-              return Column(
-                children: [
-                  for (final invoice in invoices) ...[
-                    _buildSubscriptionInvoiceRow(context, invoice, dark),
-
-                    const SizedBox(height: 8),
-                  ],
-                ],
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSubscriptionInvoiceRow(
-    BuildContext context,
-    SubscriptionInvoiceModel invoice,
-    bool dark,
-  ) {
-    final statusColor = switch (invoice.status) {
-      'settled' => AppColors.success,
-      'partially_settled' => _primary(dark),
-      'waived' => _secondaryText(dark),
-      _ => _primary(dark),
-    };
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        color: _surface(dark),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _border(dark), width: 1),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 39,
-            height: 39,
-            decoration: BoxDecoration(
-              color: _primaryTint(dark),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.receipt_long_outlined,
-              color: _primary(dark),
-              size: 19,
-            ),
-          ),
-
-          const SizedBox(width: 10),
-
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  invoice.billingMonthLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: _primaryText(dark),
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12.5,
-                  ),
-                ),
-
-                const SizedBox(height: 3),
-
-                Text(
-                  invoice.planName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: _secondaryText(dark), fontSize: 10.5),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(width: 8),
-
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                '₹${invoice.totalAmount.toStringAsFixed(2)}',
-                style: TextStyle(
-                  color: _primaryText(dark),
-                  fontWeight: FontWeight.w800,
-                  fontSize: 12.5,
-                ),
-              ),
-
-              const SizedBox(height: 4),
-
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  invoice.status,
-                  style: TextStyle(
-                    color: statusColor,
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
   // PAYOUTS VIEW
   // ============================================================
 
@@ -1189,20 +965,6 @@ class _PayoutsScreenState extends ConsumerState<PayoutsScreen> {
                   ),
                 ),
 
-                if (finance.lockedAmount > 0) ...[
-                  const SizedBox(height: 6),
-
-                  Text(
-                    '₹${finance.lockedAmount.toStringAsFixed(2)} '
-                    'locked against subscription dues'
-                    '${finance.lockedMonths.isNotEmpty ? ' (${finance.lockedMonths})' : ''}',
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 10.5,
-                      height: 1.35,
-                    ),
-                  ),
-                ],
 
                 const SizedBox(height: 18),
 
@@ -1615,7 +1377,10 @@ class _PayoutsScreenState extends ConsumerState<PayoutsScreen> {
       },
     );
 
-    amountController.dispose();
+    // Not straight away: the dialog is still animating out and its TextField
+    // still uses the controller. Disposing it now threw Flutter's
+    // "'_dependents.isEmpty': is not true" red screen on withdraw.
+    Future.delayed(const Duration(milliseconds: 600), amountController.dispose);
 
     if (result == null) return;
 

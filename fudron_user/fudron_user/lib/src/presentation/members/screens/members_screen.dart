@@ -344,7 +344,16 @@ class _MembersScreenState extends ConsumerState<MembersScreen> {
                     },
                   )
                 : null,
+            // The app theme gives every field enabled/focused outlines and a fill; "border:"
+            // alone does not override those states, so the field drew a second border
+            // inside this container's own. Clear them all so only the container border shows.
+            filled: false,
             border: InputBorder.none,
+            enabledBorder: InputBorder.none,
+            focusedBorder: InputBorder.none,
+            disabledBorder: InputBorder.none,
+            errorBorder: InputBorder.none,
+            focusedErrorBorder: InputBorder.none,
             contentPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
           ),
         ),

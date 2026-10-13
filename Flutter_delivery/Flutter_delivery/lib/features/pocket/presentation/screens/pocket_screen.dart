@@ -106,52 +106,23 @@ class _PocketScreenState extends ConsumerState<PocketScreen> {
   Future<void> _showWithdrawDialog() async {
     final pocketBalance = (_wallet?['pocketBalance'] as num?)?.toDouble() ?? 0;
     final minWithdraw = (_cashLimit?['deliveryWithdrawalLimit'] as num?)?.toDouble() ?? 0;
-    final controller = TextEditingController();
-    final formKey = GlobalKey<FormState>();
 
     final amount = await showDialog<double>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Withdraw to bank'),
-        content: Form(
-          key: formKey,
-          child: TextFormField(
-            controller: controller,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(
-              prefixText: '₹ ',
-              labelText: 'Amount',
-              helperText:
-                  'Available: ₹${pocketBalance.toStringAsFixed(0)} · Min: ₹${minWithdraw.toStringAsFixed(0)}',
-            ),
-            validator: (value) {
-              final amt = double.tryParse(value ?? '');
-              if (amt == null || amt <= 0) return 'Enter a valid amount';
-              if (amt < minWithdraw) return 'Minimum withdrawal is ₹${minWithdraw.toStringAsFixed(0)}';
-              if (amt > pocketBalance) return 'Amount exceeds available balance';
-              return null;
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (formKey.currentState?.validate() ?? false) {
-                Navigator.of(ctx).pop(double.parse(controller.text));
-              }
-            },
-            child: const Text('Withdraw'),
-          ),
-        ],
+      builder: (_) => _AmountDialog(
+        title: 'Withdraw to bank',
+        actionLabel: 'Withdraw',
+        helperText:
+            'Available: ₹${pocketBalance.toStringAsFixed(0)} · Min: ₹${minWithdraw.toStringAsFixed(0)}',
+        validator: (amt) {
+          if (amt < minWithdraw) return 'Minimum withdrawal is ₹${minWithdraw.toStringAsFixed(0)}';
+          if (amt > pocketBalance) return 'Amount exceeds available balance';
+          return null;
+        },
       ),
     );
 
-    controller.dispose();
-    if (amount == null) return;
+    if (amount == null || !mounted) return;
 
     setState(() => _withdrawing = true);
     final result = await ref.read(walletRepositoryProvider).withdraw(amount);
@@ -172,50 +143,18 @@ class _PocketScreenState extends ConsumerState<PocketScreen> {
       _showSnack('No cash in hand to deposit');
       return;
     }
-    final controller = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-
     final amount = await showDialog<double>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Deposit cash to company'),
-        content: Form(
-          key: formKey,
-          child: TextFormField(
-            controller: controller,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(
-              prefixText: '₹ ',
-              labelText: 'Amount',
-              helperText: 'Cash in hand: ₹${cashInHand.toStringAsFixed(0)}',
-            ),
-            validator: (value) {
-              final amt = double.tryParse(value ?? '');
-              if (amt == null || amt <= 0) return 'Enter a valid amount';
-              if (amt > cashInHand) return 'Amount exceeds cash in hand';
-              return null;
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (formKey.currentState?.validate() ?? false) {
-                Navigator.of(ctx).pop(double.parse(controller.text));
-              }
-            },
-            child: const Text('Deposit'),
-          ),
-        ],
+      builder: (_) => _AmountDialog(
+        title: 'Deposit cash to company',
+        actionLabel: 'Deposit',
+        helperText: 'Cash in hand: ₹${cashInHand.toStringAsFixed(0)}',
+        validator: (amt) =>
+            amt > cashInHand ? 'Amount exceeds cash in hand' : null,
       ),
     );
 
-    controller.dispose();
-    if (amount == null) return;
+    if (amount == null || !mounted) return;
     await _startDeposit(amount);
   }
 
@@ -817,4 +756,82 @@ class _WeeklyChartPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _WeeklyChartPainter oldDelegate) =>
       oldDelegate.values != values;
+}
+
+/// Amount entry for withdraw / deposit.
+///
+/// Owns its TextEditingController so it is disposed with the dialog, after the
+/// route's exit animation. The caller used to dispose it right after
+/// `await showDialog` returned, while the closing dialog was still building
+/// the TextField - Flutter's `'_dependents.isEmpty': is not true` red screen.
+class _AmountDialog extends StatefulWidget {
+  const _AmountDialog({
+    required this.title,
+    required this.actionLabel,
+    required this.helperText,
+    required this.validator,
+  });
+
+  final String title;
+  final String actionLabel;
+  final String helperText;
+
+  /// Extra rule for a parsed, positive amount; returns an error or null.
+  final String? Function(double amount) validator;
+
+  @override
+  State<_AmountDialog> createState() => _AmountDialogState();
+}
+
+class _AmountDialogState extends State<_AmountDialog> {
+  final _controller = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    FocusScope.of(context).unfocus();
+    Navigator.of(context).pop(double.parse(_controller.text.trim()));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: Form(
+        key: _formKey,
+        child: TextFormField(
+          controller: _controller,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            prefixText: '₹ ',
+            labelText: 'Amount',
+            helperText: widget.helperText,
+          ),
+          onFieldSubmitted: (_) => _submit(),
+          validator: (value) {
+            final amt = double.tryParse(value?.trim() ?? '');
+            if (amt == null || amt <= 0) return 'Enter a valid amount';
+            return widget.validator(amt);
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _submit,
+          child: Text(widget.actionLabel),
+        ),
+      ],
+    );
+  }
 }

@@ -104,6 +104,7 @@ class _Step3DocumentsState extends ConsumerState<Step3Documents> {
             ),
           ],
         ),
+        if (!form.isAdditionalOutlet) ...[
         const SizedBox(height: 20),
         _sectionCard(
           title: 'PAN details',
@@ -147,6 +148,7 @@ class _Step3DocumentsState extends ConsumerState<Step3Documents> {
             ),
           ],
         ),
+        ],
         const SizedBox(height: 20),
         _sectionCard(
           title: 'GST details',

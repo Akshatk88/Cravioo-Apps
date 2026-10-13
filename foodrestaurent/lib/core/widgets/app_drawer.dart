@@ -1,3 +1,4 @@
+import 'package:food_user_application/core/widgets/account_actions.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -82,6 +83,14 @@ class AppDrawer extends ConsumerWidget {
                     context.go('/explore');
                   },
                 ),
+                _DrawerItem(
+                  icon: Icons.store_mall_directory,
+                  title: 'My outlets',
+                  onTap: () {
+                    Navigator.pop(context);
+                    context.push('/outlets');
+                  },
+                ),
                 const Divider(height: 32),
                 _DrawerItem(
                   icon: Icons.person,
@@ -102,9 +111,12 @@ class AppDrawer extends ConsumerWidget {
               title: 'Logout',
               iconColor: Colors.red,
               textColor: Colors.red,
-              onTap: () {
+              onTap: () async {
+                // Ask while the drawer (and its context) is still open.
+                final ok = await confirmLogoutDialog(context);
+                if (!ok || !context.mounted) return;
                 Navigator.pop(context);
-                ref.read(authControllerProvider.notifier).logout();
+                await ref.read(authControllerProvider.notifier).logout();
               },
             ),
           ),

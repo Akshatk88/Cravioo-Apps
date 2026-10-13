@@ -1,23 +1,31 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:food_user_application/core/services/location_disclosure.dart';
+import 'package:food_user_application/core/services/overlay_permission_prompt.dart';
+import 'package:food_user_application/core/ui/app_messenger.dart';
+import 'package:food_user_application/features/auth/application/auth_controller.dart';
+import 'package:food_user_application/features/pocket/application/cash_limit_guard.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:food_user_application/core/error/result.dart';
 import 'package:food_user_application/core/router/app_router.dart';
-import 'package:food_user_application/core/services/device_readiness_service.dart';
 import 'package:food_user_application/core/services/fcm_service.dart';
-import 'package:food_user_application/core/services/location_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:food_user_application/core/services/new_order_overlay_bridge.dart';
+import 'package:food_user_application/core/services/new_order_action_channel.dart';
+import 'package:food_user_application/core/services/order_overlay_service.dart';
 import 'package:food_user_application/core/services/referral_tracking_service.dart';
 import 'package:food_user_application/core/theme/app_theme.dart';
+import 'package:food_user_application/features/chat/application/chat_notification_opener.dart';
 import 'package:food_user_application/core/theme/theme_mode_provider.dart';
 import 'package:food_user_application/features/orders/application/active_trip_visibility_controller.dart';
 import 'package:food_user_application/features/orders/application/incoming_order_controller.dart';
 import 'package:food_user_application/features/orders/application/orders_controller.dart';
 import 'package:food_user_application/features/orders/application/orders_state.dart';
+import 'package:food_user_application/core/services/order_resolution_tracker.dart';
 import 'package:food_user_application/features/orders/application/pending_customer_rating_controller.dart';
+import 'package:food_user_application/features/orders/data/models/delivery_order.dart';
+import 'package:food_user_application/features/orders/data/orders_repository.dart';
 import 'package:food_user_application/features/orders/presentation/screens/active_trip_screen.dart';
 import 'package:food_user_application/features/orders/presentation/screens/incoming_order_screen.dart';
 import 'package:food_user_application/core/presentation/widgets/no_network_overlay.dart';
@@ -35,6 +43,15 @@ void main() async {
   runApp(const ProviderScope(child: FoodDeliveryApp()));
 }
 
+/// Entry point for the overlay bubble's separate Flutter engine — must stay
+/// top-level in this file with this exact name/pragma, since the native
+/// `OverlayService` resolves "overlayMain" from the app's default
+/// entrypoint library (main.dart), not by scanning every file.
+@pragma('vm:entry-point')
+void overlayMain() {
+  runApp(const OrderBubbleApp());
+}
+
 class FoodDeliveryApp extends ConsumerStatefulWidget {
   const FoodDeliveryApp({super.key});
 
@@ -42,21 +59,34 @@ class FoodDeliveryApp extends ConsumerStatefulWidget {
   ConsumerState<FoodDeliveryApp> createState() => _FoodDeliveryAppState();
 }
 
-/// Bumped only if a future release needs to re-ask everyone.
-const _permissionsAskedKey = 'permissions_requested_v1';
-
 class _FoodDeliveryAppState extends ConsumerState<FoodDeliveryApp>
     with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Lets the Play-required location disclosure show from services.
+    LocationDisclosure.contextResolver = () =>
+        ref.read(goRouterProvider).routerDelegate.navigatorKey.currentContext;
     Future.microtask(() async {
+      NewOrderActionChannel.initialize();
+      // Listen before initialize() so the tap that cold-started the app (and
+      // every later chat-notification tap) opens the chat thread.
+      ref.read(chatNotificationOpenerProvider).start();
       ref.read(fcmServiceProvider).initialize();
       unawaited(ref.read(fcmServiceProvider).registerToken());
       ReferralTrackingService.initialize();
-      await _requestFirstLaunchPermissions();
-      _consumeOverlayHandoff();
+      _consumePendingOverlayOrder();
+      _consumePendingNativeOrderAction();
+      _consumePendingIncomingOrder();
+      // After the splash has handed over, so the popup is not wiped by its redirect.
+      Future.delayed(const Duration(seconds: 6), () {
+        if (!mounted) return;
+        // One dialog at a time: overlay permission first, then the cash limit.
+        ref.read(overlayPermissionPromptProvider).check().then((_) {
+          if (mounted) ref.read(cashLimitGuardProvider).check();
+        });
+      });
     });
   }
 
@@ -69,9 +99,14 @@ class _FoodDeliveryAppState extends ConsumerState<FoodDeliveryApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // Tapping the overlay resumes an already-running app rather than starting
-      // it, so the handoff has to be picked up here as well as at launch.
-      _consumeOverlayHandoff();
+      ref.read(chatNotificationOpenerProvider).consumePending();
+      _consumePendingOverlayOrder();
+      _consumePendingNativeOrderAction();
+      _consumePendingIncomingOrder();
+      // Warn if the cash in hand has reached the COD cash limit.
+      unawaited(ref.read(overlayPermissionPromptProvider).check().then((_) {
+        if (mounted) ref.read(cashLimitGuardProvider).check();
+      }));
       // Re-checks full-screen-intent / overlay permissions on every resume,
       // not just cold start — catches a rider who dismissed the Settings
       // prompt the first time or toggled it manually while the app was
@@ -81,44 +116,73 @@ class _FoodDeliveryAppState extends ConsumerState<FoodDeliveryApp>
       // Re-register the push token on every resume, for the same reason.
       unawaited(ref.read(fcmServiceProvider).registerToken());
 
+      // Admin may have changed this partner's concurrent-order limit.
+      unawaited(ref.read(authControllerProvider.notifier).refreshProfileQuietly());
+
       // Refresh orders
       ref.read(ordersControllerProvider.notifier).refreshAll();
     }
   }
 
-  /// Asks for everything the app needs, once, on the first launch after install.
-  ///
-  /// These used to be requested at the point of use — location when the rider
-  /// tapped Go Online — which put a permission dialog in the middle of the one
-  /// action that has to be instant. The flag is written BEFORE the prompts so a
-  /// rider who dismisses one and kills the app is not re-prompted on every
-  /// launch; anything still missing is surfaced by the readiness screen.
-  Future<void> _requestFirstLaunchPermissions() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (prefs.getBool(_permissionsAskedKey) == true) return;
-    await prefs.setBool(_permissionsAskedKey, true);
-
-    // Runtime dialogs first — they are quick and can be answered in place.
-    await ref.read(fcmServiceProvider).ensureAndroidAlertPermissions();
-    await ref.read(locationServiceProvider).ensurePermissions(requestExtras: true);
-
-    // The two below throw the rider out to Settings screens, so they go last,
-    // after everything that can be answered with a dialog.
-    await DeviceReadinessService.fix('battery');
-    if (!await NewOrderOverlayBridge.hasPermission()) {
-      await NewOrderOverlayBridge.requestPermission();
+  Future<void> _consumePendingNativeOrderAction() async {
+    final action = await NewOrderActionChannel.consumePendingAction();
+    if (action == null || !mounted) return;
+    if (action.accepted) {
+      final result =
+          await ref.read(ordersControllerProvider.notifier).acceptOrder(action.orderId);
+      result.when(
+        success: (_) {},
+        failure: (e) => ref.read(cashLimitGuardProvider).handleAcceptError(e.message),
+      );
+    } else {
+      await ref.read(ordersControllerProvider.notifier).rejectOrder(action.orderId);
     }
   }
 
-  /// Picks up whatever the native overlay left for us: the order the rider
-  /// tapped, and any they rejected while the app was not running.
-  Future<void> _consumeOverlayHandoff() async {
-    final controller = ref.read(incomingOrderControllerProvider.notifier);
-    unawaited(controller.flushOverlayRejections());
+  Future<void> _consumePendingIncomingOrder() async {
+    final orderId = await NewOrderActionChannel.consumePendingIncomingOrderId();
+    if (orderId == null || orderId.isEmpty || !mounted) return;
+    if (OrderResolutionTracker.isResolved(orderId)) return;
+    final incomingController = ref.read(incomingOrderControllerProvider.notifier);
+    final result = await ref.read(ordersRepositoryProvider).getOrderDetails(orderId);
+    result.when(
+      success: (order) {
+        if (!OrderResolutionTracker.isResolved(order.id)) {
+          incomingController.show(order);
+        }
+      },
+      failure: (_) {
+        incomingController.show(DeliveryOrder.fromRealtimePayload({'orderId': orderId}));
+      },
+    );
+  }
 
-    final handoff = await NewOrderOverlayBridge.consumeLaunchOrder();
-    if (handoff == null || !mounted) return;
-    await controller.showById(handoff.orderId, autoAccept: handoff.autoAccept);
+  /// Surfaces an order that arrived as a home-screen bubble (app was
+  /// backgrounded) into the same in-app IncomingOrderScreen shown for the
+  /// foreground/socket path, and dismisses the bubble now that the app is
+  /// in front.
+  Future<void> _consumePendingOverlayOrder() async {
+    await OrderOverlayService.close();
+    final data = await OrderOverlayService.consumePendingOrder();
+    if (data == null || !mounted) return;
+    final order = DeliveryOrder.fromRealtimePayload(data);
+
+    // Accepted on the bubble: go straight to the trip. Showing the incoming
+    // screen and accepting from it raced the resume refresh, which wiped the
+    // freshly accepted trip and left the rider on the home map.
+    if (data['autoAccept'] == true) {
+      if (order.id.isEmpty) return;
+      final result =
+          await ref.read(ordersControllerProvider.notifier).acceptOrder(order.id);
+      if (!mounted) return;
+      result.when(
+        success: (_) {},
+        failure: (e) => ref.read(cashLimitGuardProvider).handleAcceptError(e.message),
+      );
+      return;
+    }
+
+    ref.read(incomingOrderControllerProvider.notifier).show(order);
   }
 
   @override
@@ -133,7 +197,8 @@ class _FoodDeliveryAppState extends ConsumerState<FoodDeliveryApp>
       splitScreenMode: true,
       builder: (context, child) {
         return MaterialApp.router(
-          title: 'Fodron Delivery',
+          title: 'Cravioo Delivery',
+          scaffoldMessengerKey: appMessengerKey,
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,

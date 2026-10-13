@@ -17,12 +17,14 @@ import 'package:food_user_application/core/error/result.dart';
 import 'package:food_user_application/core/services/haptic_service.dart';
 import 'package:food_user_application/core/services/location_service.dart';
 import 'package:food_user_application/core/utils/map_launcher.dart';
+import 'package:food_user_application/core/utils/rider_marker.dart';
 import 'package:food_user_application/core/constants/app_constants.dart';
 import 'package:food_user_application/core/constants/map_styles.dart';
 import 'package:food_user_application/core/utils/polyline_decoder.dart';
 import 'package:food_user_application/features/auth/application/auth_controller.dart';
 import 'package:food_user_application/features/auth/application/auth_state.dart';
 import '../widgets/otp_bottom_sheet.dart';
+import '../widgets/order_summary_section.dart';
 import 'package:food_user_application/features/orders/application/active_trip_visibility_controller.dart';
 import 'package:food_user_application/features/orders/application/orders_controller.dart';
 import 'package:food_user_application/features/orders/application/orders_state.dart';
@@ -39,7 +41,7 @@ const _tripOnlineGreen = Color(0xFF1EBE5D);
 /// been minimized. Mirrors [IncomingOrderScreen]'s overlay pattern so it
 /// works regardless of the current GoRouter location, and automatically
 /// reappears if the app is relaunched mid-delivery.
-final GlobalKey<NavigatorState> _activeTripNavKey = GlobalKey<NavigatorState>();
+final GlobalKey<NavigatorState> activeTripNavigatorKey = GlobalKey<NavigatorState>();
 
 class ActiveTripScreen extends ConsumerWidget {
   const ActiveTripScreen({super.key});
@@ -47,7 +49,7 @@ class ActiveTripScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Navigator(
-      key: _activeTripNavKey,
+      key: activeTripNavigatorKey,
       onGenerateRoute: (settings) => MaterialPageRoute(
         builder: (context) => const _ActiveTripScaffold(),
       ),
@@ -77,10 +79,25 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
   bool _routeFetchInFlight = false;
   DeliveryOrder? _lastOrder;
   double _currentHeading = 0.0;
-  Position? _previousPos;
+  final RiderHeadingTracker _headingTracker = RiderHeadingTracker();
   final ConfettiController _confettiController = ConfettiController(duration: const Duration(seconds: 2));
   bool _isCompleting = false;
-  bool _isActionLoading = false;
+  bool _verifyingOtp = false;
+
+  /// True while the drop-OTP dialog is open: live map and heading updates
+  /// pause so the keyboard and dialog stay smooth.
+  bool _mapFrozen = false;
+  Widget? _lastMapChild;
+
+  // Built once so map updates do not re-send the marker icon every time.
+  static final BitmapDescriptor _pickupPinIcon =
+      BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+  static final BitmapDescriptor _dropPinIcon =
+      BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet);
+  /// Orders with a step in flight. Per order, so pressing a button on one
+  /// order never disables or spins the other order's buttons.
+  final Set<String> _busyOrders = <String>{};
+  bool _isBusy(String orderId) => _busyOrders.contains(orderId);
 
   // --- Debug-only route simulator (kDebugMode) -----------------------------
   // Walks a synthetic position along the last fetched polyline so testers can
@@ -186,19 +203,11 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
         );
   }
 
-  Future<Uint8List> _getBytesFromAsset(String path, int width) async {
-    final data = await rootBundle.load(path);
-    final codec = await ui.instantiateImageCodec(data.buffer.asUint8List(), targetWidth: width);
-    final frame = await codec.getNextFrame();
-    final bytes = await frame.image.toByteData(format: ui.ImageByteFormat.png);
-    return bytes!.buffer.asUint8List();
-  }
-
   Future<void> _loadMarkerIcon() async {
     try {
-      final bytes = await _getBytesFromAsset('assets/image/bike.png', 80);
+      final icon = await RiderMarker.load(MediaQuery.devicePixelRatioOf(context));
       if (!mounted) return;
-      setState(() => _bikeMarkerIcon = BitmapDescriptor.fromBytes(bytes));
+      setState(() => _bikeMarkerIcon = icon);
     } catch (_) {
       // Falls back to the native blue dot if the asset fails to decode.
     }
@@ -285,33 +294,11 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
       _fetchRoute(_lastOrder!, _targetFor(_lastOrder!));
     }
 
-    // Prefer the device's own compass-fused heading (updates continuously,
-    // even while turning in place) over a bearing computed between two GPS
-    // fixes, which only changes once the rider has actually moved.
-    final hasDeviceHeading = position.headingAccuracy >= 0 && position.heading >= 0;
-    double? nextHeading;
-    if (hasDeviceHeading) {
-      nextHeading = position.heading;
-    } else if (_previousPos != null) {
-      final distance = Geolocator.distanceBetween(
-        _previousPos!.latitude,
-        _previousPos!.longitude,
-        position.latitude,
-        position.longitude,
-      );
-      if (distance > 1.5) { // update heading if moved more than 1.5 meters
-        nextHeading = Geolocator.bearingBetween(
-          _previousPos!.latitude,
-          _previousPos!.longitude,
-          position.latitude,
-          position.longitude,
-        );
-      }
+    // GPS course while moving, else bearing between consecutive fixes; kept
+    // steady when stationary (Android reports heading 0 then).
+    if (_headingTracker.update(position) && mounted && !_mapFrozen) {
+      setState(() => _currentHeading = _headingTracker.heading);
     }
-    if (nextHeading != null && mounted) {
-      setState(() => _currentHeading = nextHeading!);
-    }
-    _previousPos = position;
   }
 
   void _maybeFetchRoute(DeliveryOrder order) {
@@ -369,11 +356,15 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
         final destLoc = target == 'restaurant'
             ? order.restaurant.location
             : order.deliveryAddress.location;
-        final destination = destLoc != null
+        final destination = destLoc != null && MapLauncher.isValidCoordinate(destLoc.lat, destLoc.lng)
             ? LatLng(destLoc.lat, destLoc.lng)
             : (points.isNotEmpty ? points.last : null);
         setState(() {
-          _routePoints = points;
+          // No road route available (endpoint missing / failed): draw a
+          // straight line to the target so the rider still sees direction.
+          _routePoints = points.isEmpty && destination != null
+              ? [LatLng(pos.latitude, pos.longitude), destination]
+              : points;
           _routeDestination = destination;
           _etaMins = (data['durationMins'] as num?)?.toDouble();
         });
@@ -408,12 +399,15 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<void> _runAction(Future<Result<DeliveryOrder, AppError>> Function() call) async {
+  Future<void> _runAction(
+    String orderId,
+    Future<Result<DeliveryOrder, AppError>> Function() call,
+  ) async {
     _stopSimulation();
-    if (_isActionLoading) return;
-    setState(() => _isActionLoading = true);
+    if (_isBusy(orderId)) return;
+    setState(() => _busyOrders.add(orderId));
     final result = await call();
-    if (mounted) setState(() => _isActionLoading = false);
+    if (mounted) setState(() => _busyOrders.remove(orderId));
     result.when(success: (_) {}, failure: (error) => _showSnack(error.message));
   }
 
@@ -424,19 +418,19 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
         return (
           label: 'Reached pickup',
           icon: Icons.storefront_outlined,
-          action: () => _runAction(() => controller.reachedPickup(order.id)),
+          action: () => _runAction(order.id, () => controller.reachedPickup(order.id)),
         );
       case 'at_pickup':
         return (
           label: 'Confirm pickup',
           icon: Icons.check_circle_outline,
-          action: () => _runAction(() => controller.confirmPickup(order.id)),
+          action: () => _runAction(order.id, () => controller.confirmPickup(order.id)),
         );
       case 'en_route_to_delivery':
         return (
           label: 'Reached drop',
           icon: Icons.flag_outlined,
-          action: () => _runAction(() => controller.reachedDrop(order.id)),
+          action: () => _runAction(order.id, () => controller.reachedDrop(order.id)),
         );
       case 'at_drop':
         if (order.dropOtpRequired && !order.dropOtpVerified) {
@@ -463,6 +457,146 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
     }
   }
 
+  /// Multi-order partner (admin-set limit > 1): every order they hold, side by
+  /// side. Each card has that order's own next step (Reached pickup, Confirm
+  /// pickup, Reached drop, Verify OTP...), so the orders run together instead
+  /// of one after the other. Tapping a card puts that order on the map and in
+  /// the panel below.
+  Widget _buildOrderSwitcher(DeliveryOrder current, List<DeliveryOrder> others) {
+    final all = [current, ...others];
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: SafeArea(
+        child: Padding(
+          padding: EdgeInsets.only(top: 68.h),
+          child: SizedBox(
+            height: 112.h,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.symmetric(horizontal: 16.w),
+              itemCount: all.length,
+              separatorBuilder: (_, _) => SizedBox(width: 10.w),
+              itemBuilder: (context, i) {
+                final o = all[i];
+                final selected = o.id == current.id;
+                final pickup = _targetFor(o) == 'restaurant';
+                final label = o.orderCode.isNotEmpty ? o.orderCode : o.id;
+                final place = pickup
+                    ? (o.restaurant.name.isNotEmpty ? o.restaurant.name : 'Restaurant')
+                    : (o.customerName.isNotEmpty ? o.customerName : 'Customer');
+                final action = _actionFor(o);
+                return GestureDetector(
+                  onTap: selected
+                      ? null
+                      : () {
+                          _routeKey = null;
+                          ref.read(ordersControllerProvider.notifier).switchCurrentOrder(o.id);
+                        },
+                  child: Container(
+                    width: 220.w,
+                    padding: EdgeInsets.fromLTRB(12.w, 10.h, 12.w, 10.h),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16.r),
+                      border: Border.all(
+                        color: selected ? const Color(0xFF1FA84F) : const Color(0xFFE5E7EB),
+                        width: selected ? 2 : 1,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.10),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 2.h),
+                              decoration: BoxDecoration(
+                                color: pickup ? const Color(0xFFFFF3E0) : const Color(0xFFE8F6EC),
+                                borderRadius: BorderRadius.circular(6.r),
+                              ),
+                              child: Text(
+                                pickup ? 'Pickup' : 'Drop',
+                                style: TextStyle(
+                                  fontSize: 10.sp,
+                                  fontWeight: FontWeight.w800,
+                                  color: pickup ? const Color(0xFFE08A00) : const Color(0xFF1FA84F),
+                                ),
+                              ),
+                            ),
+                            SizedBox(width: 6.w),
+                            Expanded(
+                              child: Text(
+                                '${i + 1}/${all.length} · $label',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11.sp,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 4.h),
+                        Text(
+                          place,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w800, color: Colors.black),
+                        ),
+                        const Spacer(),
+                        if (action != null)
+                          SizedBox(
+                            width: double.infinity,
+                            height: 32.h,
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF1FA84F),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                minimumSize: const Size(0, 0),
+                                padding: EdgeInsets.symmetric(horizontal: 8.w),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10.r)),
+                              ),
+                              onPressed: _isBusy(o.id) ? null : action.action,
+                              icon: Icon(action.icon, size: 15.sp),
+                              label: Text(
+                                action.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 11.5.sp, fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// After completing a trip: has a waiting order (multi-order partner) been
+  /// promoted to the current trip?
+  bool _hasNextTrip() {
+    final s = ref.read(ordersControllerProvider);
+    return s is OrdersLoaded && s.currentOrder != null;
+  }
+
   Future<void> _completeDelivery(DeliveryOrder order) async {
     if (_isCompleting) return;
     setState(() => _isCompleting = true);
@@ -474,9 +608,14 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
     final result = await ref.read(ordersControllerProvider.notifier).completeOrder(order.id);
     result.when(
       success: (_) {
-        ref.read(activeTripVisibilityControllerProvider.notifier).show();
+        // Another accepted order is waiting (multi-order partner): it is now
+        // the current trip, so stay on the trip screen for it.
+        if (_hasNextTrip()) {
+          if (mounted) setState(() => _isCompleting = false);
+          return;
+        }
+        ref.read(activeTripVisibilityControllerProvider.notifier).hide();
         if (mounted) {
-           ref.read(activeTripVisibilityControllerProvider.notifier).hide();
            ref.read(goRouterProvider).go('/main');
         }
       },
@@ -488,10 +627,47 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
   }
 
   Future<void> _promptDropOtp(DeliveryOrder order) async {
+    if (_verifyingOtp) return;
     final controller = ref.read(ordersControllerProvider.notifier);
-    final otp = await showOtpBottomSheet(context, customerName: order.customerName);
-    if (otp == null || otp.length != 4) return;
+    _mapFrozen = true;
+    final String? otp;
+    try {
+      otp = await showOtpBottomSheet(context, customerName: order.customerName);
+    } finally {
+      _mapFrozen = false;
+    }
+    if (otp == null || otp.length != 4 || !mounted) return;
+
+    // Visible progress while the server checks the code. Without it the screen sat
+    // frozen for the whole request, which read as the app hanging - and invited a
+    // second tap that sent the OTP again.
+    _verifyingOtp = true;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const PopScope(
+        canPop: false,
+        child: Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 28, vertical: 22),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5)),
+                  SizedBox(width: 16),
+                  Text('Verifying OTP…', style: TextStyle(fontWeight: FontWeight.w700)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
     final result = await controller.verifyDropOtp(order.id, otp);
+    _verifyingOtp = false;
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop(); // the progress dialog
     result.when(
       success: (updatedOrder) async {
         // COD (or any unpaid) order: don't complete just because the OTP
@@ -510,6 +686,10 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
           final completeResult = await ref.read(ordersControllerProvider.notifier).completeOrder(order.id);
           completeResult.when(
             success: (_) {
+              if (_hasNextTrip()) {
+                if (mounted) setState(() => _isCompleting = false);
+                return;
+              }
               ref.read(activeTripVisibilityControllerProvider.notifier).hide();
               ref.read(goRouterProvider).go('/main');
             },
@@ -534,6 +714,30 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
     if (collected == true && mounted) {
       await _completeDelivery(order);
     }
+  }
+
+  /// Current navigation target for the trip stage: restaurant until pickup is
+  /// confirmed, customer afterwards. Null when the order has no usable coords.
+  LatLng? _targetLatLng(DeliveryOrder order) {
+    final loc = _targetFor(order) == 'restaurant'
+        ? order.restaurant.location
+        : order.deliveryAddress.location;
+    if (loc == null || !MapLauncher.isValidCoordinate(loc.lat, loc.lng)) return null;
+    return LatLng(loc.lat, loc.lng);
+  }
+
+  /// Opens Google Maps turn-by-turn to the current target.
+  Future<void> _navigateTo(DeliveryOrder order) async {
+    HapticService.light();
+    final target = _targetLatLng(order);
+    if (target == null) {
+      _showSnack(_targetFor(order) == 'restaurant'
+          ? 'Restaurant location is not available for this order'
+          : 'Customer location is not available for this order');
+      return;
+    }
+    final opened = await MapLauncher.launchGoogleMaps(target.latitude, target.longitude);
+    if (!opened) _showSnack('Could not open Google Maps on this device');
   }
 
   void _openChat(DeliveryOrder order) {
@@ -581,15 +785,17 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
 
   Widget _buildMap(DeliveryOrder order) {
     final authState = ref.watch(authControllerProvider);
-    final isBike = authState is AuthAuthenticated &&
-        (authState.user.vehicleType?.toLowerCase() == 'bike' ||
-            authState.user.vehicleType?.toLowerCase() == 'two_wheeler');
-    final useCustomMarker = isBike && _bikeMarkerIcon != null;
+    final useCustomMarker =
+        _bikeMarkerIcon != null &&
+        RiderMarker.suitsVehicle(authState is AuthAuthenticated ? authState.user.vehicleType : null);
 
     return StreamBuilder<Position>(
       stream: ref.read(locationServiceProvider).positionStream,
       initialData: ref.read(locationServiceProvider).lastPosition,
       builder: (context, snapshot) {
+        // While the OTP dialog is up, hand back the same map widget so GPS ticks
+        // do not rebuild the platform view under the keyboard animation.
+        if (_mapFrozen && _lastMapChild != null) return _lastMapChild!;
         final pos = snapshot.data;
         final initialTarget = pos != null
             ? LatLng(pos.latitude, pos.longitude)
@@ -598,7 +804,7 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
         final hasGalleryImages = order.restaurant.allImages.isNotEmpty;
         final useRestaurantMarker = isPickupPhase && _restaurantMarkerIcon != null;
 
-        return GoogleMap(
+        return _lastMapChild = GoogleMap(
           onMapCreated: (controller) => _mapController = controller,
           initialCameraPosition: CameraPosition(target: initialTarget, zoom: 15),
           markers: {
@@ -608,9 +814,7 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
                 position: _routeDestination!,
                 icon: useRestaurantMarker
                     ? _restaurantMarkerIcon!
-                    : BitmapDescriptor.defaultMarkerWithHue(
-                        isPickupPhase ? BitmapDescriptor.hueOrange : BitmapDescriptor.hueViolet,
-                      ),
+                    : (isPickupPhase ? _pickupPinIcon : _dropPinIcon),
                 onTap: isPickupPhase && hasGalleryImages
                     ? () {
                         HapticService.light();
@@ -637,7 +841,9 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
                 width: 5,
               ),
           },
-          myLocationEnabled: true,
+          // The bike marker replaces the blue dot; keep the dot only as a
+          // fallback when the marker image isn't available.
+          myLocationEnabled: !(useCustomMarker && pos != null),
           myLocationButtonEnabled: false,
           zoomControlsEnabled: true,
           compassEnabled: false,
@@ -684,9 +890,15 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
       },
       child: Scaffold(
         backgroundColor: Colors.black,
+        // The keyboard (OTP entry) must not resize this screen: resizing re-lays out
+        // the Google Map platform view on every frame of the keyboard animation,
+        // which is what made the OTP step stutter. Dialogs inset themselves.
+        resizeToAvoidBottomInset: false,
         body: Stack(
           children: [
             Positioned.fill(child: _buildMap(order)),
+            if (ordersState.otherActiveOrders.isNotEmpty)
+              _buildOrderSwitcher(order, ordersState.otherActiveOrders),
             SafeArea(
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
@@ -862,8 +1074,6 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
     final action = _actionFor(order);
     final name = isPickupPhase ? order.restaurant.name : order.customerName;
     final address = isPickupPhase ? order.restaurant.address : order.deliveryAddress.fullAddress;
-    final destLat = isPickupPhase ? order.restaurant.location?.lat : order.deliveryAddress.location?.lat;
-    final destLng = isPickupPhase ? order.restaurant.location?.lng : order.deliveryAddress.location?.lng;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(16.w, 0, 16.w, 16.h),
@@ -1002,6 +1212,35 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
                 ),
               ],
             ),
+            SizedBox(height: 12.h),
+            // The customer's order (items, value, cash to collect). Collapsed by
+            // default so the map stays visible; scrolls when the order is long.
+            Theme(
+              data: theme.copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: EdgeInsets.only(bottom: 8.h),
+                initiallyExpanded: false,
+                title: Text(
+                  'Order details',
+                  style: TextStyle(color: textColor, fontWeight: FontWeight.w800, fontSize: 15.sp),
+                ),
+                subtitle: Text(
+                  '${order.items.length} item${order.items.length == 1 ? '' : 's'}'
+                  '${order.total > 0 ? '  •  ₹${order.total.toStringAsFixed(0)}' : ''}'
+                  '${order.isCashOnDelivery && !order.isPaid ? '  •  Collect cash' : '  •  Prepaid'}',
+                  style: TextStyle(color: subTextColor, fontSize: 12.5.sp),
+                ),
+                children: [
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.35),
+                    child: SingleChildScrollView(
+                      child: OrderSummarySection(order: order, dark: isDarkMode),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             SizedBox(height: 20.h),
             Divider(height: 1, color: isDarkMode ? Colors.white12 : Colors.grey[200]),
             SizedBox(height: 20.h),
@@ -1022,13 +1261,7 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
                 SizedBox(width: 12.w),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: () {
-                      if (destLat != null && destLng != null) {
-                        MapLauncher.launchGoogleMaps(destLat, destLng);
-                      } else {
-                        _showSnack('Location not available');
-                      }
-                    },
+                    onPressed: () => _navigateTo(order),
                     icon: Icon(Icons.map_outlined, size: 20.sp, color: theme.primaryColor),
                     label: Text('Map', style: TextStyle(color: textColor, fontWeight: FontWeight.w700, fontSize: 14.sp)),
                     style: OutlinedButton.styleFrom(
@@ -1045,7 +1278,7 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
               width: double.infinity,
               height: 54.h,
               child: ElevatedButton(
-                onPressed: _isActionLoading
+                onPressed: _isBusy(order.id)
                     ? null
                     : () {
                         HapticService.light();
@@ -1059,7 +1292,7 @@ class _ActiveTripScaffoldState extends ConsumerState<_ActiveTripScaffold> {
                   padding: EdgeInsets.symmetric(vertical: 14.h),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20.r)),
                 ),
-                child: _isActionLoading
+                child: _isBusy(order.id)
                     ? SizedBox(
                         width: 24.r,
                         height: 24.r,

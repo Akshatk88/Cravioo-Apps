@@ -10,19 +10,20 @@
     <!-- Lets the full-screen alert wake the screen rather than waiting for the
          restaurant to pick the phone up. -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
-    <!-- Draws the incoming-order card over whatever the restaurant is using. Granted
-         only by hand (Settings > Display over other apps); Play Console needs a
-         justification: an order must be answered within seconds, and a notification
-         is capped at ~256dp by the platform so it cannot show the order. -->
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- Lets the new-order alert draw over other apps, so it appears on screen
+         even when the app is closed (granted by the restaurant in Settings). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <!-- The overlay bubble runs as a foreground service (flutter_overlay_window). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <!-- Lets the app prompt the restaurant to exempt itself from Doze/App
          Standby battery optimization, which on some OEMs (Xiaomi, Vivo, Oppo)
          otherwise blocks the app's process from being started to show the
          new-order alert when the app is killed. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <application
-        android:label="Cravioo Restaurent"
+        android:label="Cravioo Restaurant"
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon">
         <meta-data
@@ -113,6 +114,18 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- The new-order bubble drawn over other apps (flutter_overlay_window).
+             The plugin does not declare its own service: without this entry
+             showOverlay() fails silently. specialUse is required on Android 14+. -->
+        <service
+            android:name="flutter.overlay.window.flutter_overlay_window.OverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Shows a new incoming order over other apps so the restaurant can accept or reject it before it expires." />
+        </service>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

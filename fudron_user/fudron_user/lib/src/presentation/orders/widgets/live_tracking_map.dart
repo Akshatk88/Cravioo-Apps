@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../core/utils/map_styles.dart';
@@ -100,6 +101,11 @@ class LiveTrackingMap extends StatefulWidget {
   /// Server route, already decoded by the view model.
   final List<PointLatLng> routePoints;
 
+  /// True once the food is picked up, i.e. the rider's next stop is the
+  /// customer rather than the restaurant. Drives the camera framing and the
+  /// fallback line drawn when there is no road route.
+  final bool headingToCustomer;
+
   const LiveTrackingMap({
     super.key,
     required this.riderLat,
@@ -110,6 +116,7 @@ class LiveTrackingMap extends StatefulWidget {
     this.customerLat,
     this.customerLng,
     this.routePoints = const [],
+    this.headingToCustomer = false,
   });
 
   /// Whether we have a real rider position to draw.
@@ -146,16 +153,37 @@ class _LiveTrackingMapState extends State<LiveTrackingMap>
   /// underneath the user, resetting their zoom.
   late final CameraPosition _frozenInitialCamera;
 
-  /// Direction the bike icon points, derived from its actual movement.
+  /// Direction the bike icon currently points (painted value).
   double _bearing = 0;
+
+  /// Rotation tween endpoints, so a turn eases in instead of snapping.
+  double _bearingFrom = 0;
+  double _bearingTo = 0;
 
   /// Correction for the artwork's own orientation.
   ///
   /// Marker.rotation is measured clockwise from north and rotates the image as
-  /// drawn, so it only lines up if the art points up-screen. assets/images/bike.png
-  /// is drawn facing DOWN, which made the rider appear to ride in reverse: pointing
-  /// south while travelling north.
-  static const _iconHeadingOffset = 180.0;
+  /// drawn. assets/images/bike.png is a top-down rider with the front wheel at
+  /// the TOP of the image, i.e. it already faces north, so no correction.
+  static const _iconHeadingOffset = 0.0;
+
+  /// Rider artwork and its on-map width in logical pixels. The height follows
+  /// the artwork's own aspect ratio (the PNG is tall: 632x1499).
+  static const _riderAsset = 'assets/images/bike.png';
+  static const _riderIconWidth = 14.0;
+
+  /// Device pixel ratio the rider icon was rasterised for.
+  double? _riderIconDpr;
+
+  /// Below this a "movement" is GPS jitter, and its bearing is noise.
+  static const _minBearingDistanceMeters = 3.0;
+
+  /// When the camera last auto-framed for a new rider position.
+  DateTime? _lastAutoFit;
+  static const _autoFitGap = Duration(seconds: 4);
+
+  /// Where the current touch started, to tell a pan/pinch from a tap.
+  final Map<int, Offset> _pointerDownAt = {};
 
   /// Restaurant and customer never move, so their markers are built once and
   /// reused. They were being reallocated on every animation frame along with the
@@ -224,7 +252,9 @@ class _LiveTrackingMapState extends State<LiveTrackingMap>
     _to = _current;
     _frozenInitialCamera = CameraPosition(target: _current, zoom: 15);
 
-    _loadCustomMarker();
+    // Until the rider has moved, the device-reported heading is the only hint.
+    _bearing = _bearingFrom = _bearingTo = widget.heading % 360;
+
     _loadPinIcons();
 
     // Duration is set per update from the MEASURED gap between positions — see
@@ -332,20 +362,66 @@ class _LiveTrackingMapState extends State<LiveTrackingMap>
     );
   }
 
-  Future<void> _loadCustomMarker() async {
-    try {
-      final icon = await BitmapDescriptor.asset(
-        const ImageConfiguration(size: Size(48, 48)),
-        'assets/images/bike.png',
-      );
-      if (mounted) {
-        setState(() {
-          _bikeIcon = icon;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error loading bike marker icon: $e');
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    if (dpr != _riderIconDpr) {
+      _riderIconDpr = dpr;
+      _loadRiderIcon(dpr);
     }
+  }
+
+  /// Rasterises the rider artwork at its on-map size for this screen density.
+  ///
+  /// The source PNG is 632x1499. Handing it to BitmapDescriptor.asset with a
+  /// square 48x48 size squashed the tall artwork, and shipping the full-size
+  /// image would draw it hundreds of pixels tall. Instead it is decoded straight
+  /// to [_riderIconWidth] logical px wide (times the device pixel ratio, so it
+  /// stays sharp) with the height following the artwork's aspect ratio.
+  Future<void> _loadRiderIcon(double dpr) async {
+    try {
+      final data = await rootBundle.load(_riderAsset);
+      final buffer = await ui.ImmutableBuffer.fromUint8List(data.buffer.asUint8List());
+      final descriptor = await ui.ImageDescriptor.encoded(buffer);
+      final aspect = descriptor.height / descriptor.width;
+      final logicalHeight = _riderIconWidth * aspect;
+      final codec = await descriptor.instantiateCodec(
+        targetWidth: (_riderIconWidth * dpr).round(),
+        targetHeight: (logicalHeight * dpr).round(),
+      );
+      final frame = await codec.getNextFrame();
+      final png = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+      frame.image.dispose();
+      codec.dispose();
+      descriptor.dispose();
+      buffer.dispose();
+      if (png == null || !mounted) return;
+      final icon = BitmapDescriptor.bytes(
+        png.buffer.asUint8List(),
+        width: _riderIconWidth,
+        height: logicalHeight,
+      );
+      setState(() => _bikeIcon = icon);
+    } catch (e) {
+      debugPrint('Error loading rider marker icon: $e');
+    }
+  }
+
+  /// Rough ground distance in metres — equirectangular, plenty at city scale.
+  static double _distanceMeters(LatLng a, LatLng b) {
+    const r = 6371000.0;
+    final lat1 = a.latitude * math.pi / 180;
+    final lat2 = b.latitude * math.pi / 180;
+    final x = (b.longitude - a.longitude) * math.pi / 180 * math.cos((lat1 + lat2) / 2);
+    final y = lat2 - lat1;
+    return math.sqrt(x * x + y * y) * r;
+  }
+
+  /// Interpolates between two compass angles the short way round.
+  static double _lerpAngle(double from, double to, double t) {
+    final delta = ((to - from + 540) % 360) - 180;
+    return (from + delta * t + 360) % 360;
   }
 
   @override
@@ -366,20 +442,38 @@ class _LiveTrackingMapState extends State<LiveTrackingMap>
         _current = target;
         _from = target;
         _to = target;
+        if (widget.heading != 0) {
+          _bearing = _bearingFrom = _bearingTo = widget.heading % 360;
+        }
         // Re-frame now that there is something real to frame.
         WidgetsBinding.instance.addPostFrameCallback((_) => _fitBounds());
       } else if (target != _to) {
         // Subsequent updates animate, so the marker glides instead of teleporting.
         _from = _current;
         _to = target;
-        // Point the bike along the leg it is about to travel.
-        _bearing = bearingBetween(_from, _to);
+        // Point the bike along the leg it is about to travel. Bearing from the
+        // movement itself when it is a real move; for jitter-sized hops use
+        // the device heading if it sent one, else keep the current direction.
+        _bearingFrom = _bearing;
+        if (_distanceMeters(_from, _to) >= _minBearingDistanceMeters) {
+          _bearingTo = bearingBetween(_from, _to);
+        } else if (widget.heading != 0) {
+          _bearingTo = widget.heading % 360;
+        } else {
+          _bearingTo = _bearing;
+        }
         _lastPaint = Duration.zero;
         _anim
           ..duration = _durationForNextLeg()
           ..reset()
           ..forward();
+        if (_isAutoFollowEnabled) _maybeAutoFit();
       }
+    }
+
+    // The phase flip at pickup changes what the camera should frame.
+    if (old.headingToCustomer != widget.headingToCustomer && _isAutoFollowEnabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _fitBounds());
     }
 
     // Static pins depend on these, so drop the cache when any of them change.
@@ -412,10 +506,15 @@ class _LiveTrackingMapState extends State<LiveTrackingMap>
     //
     // The final frame is never skipped, so the marker always lands exactly on the
     // reported position rather than a fraction short of it.
+    // The turn completes in the first ~third of the leg, so the bike faces its
+    // new direction early rather than crabbing sideways the whole way.
+    final nextBearing = _lerpAngle(_bearingFrom, _bearingTo, math.min(1.0, t * 3));
+
     final isLastFrame = _anim.value >= 1.0;
     final movedEnough =
         (next.latitude - _current.latitude).abs() > 1e-6 ||
-        (next.longitude - _current.longitude).abs() > 1e-6;
+        (next.longitude - _current.longitude).abs() > 1e-6 ||
+        (((nextBearing - _bearing + 540) % 360) - 180).abs() > 0.5;
     if (!isLastFrame) {
       if (!movedEnough) return;
       final elapsed = _anim.lastElapsedDuration ?? Duration.zero;
@@ -423,7 +522,10 @@ class _LiveTrackingMapState extends State<LiveTrackingMap>
       _lastPaint = elapsed;
     }
 
-    setState(() => _current = next);
+    setState(() {
+      _current = next;
+      _bearing = isLastFrame ? _bearingTo : nextBearing;
+    });
     // Wipe the line as the marker glides, not only when a new position lands.
     //
     // Without this the bike slid smoothly along a line that only shortened every
@@ -444,14 +546,44 @@ class _LiveTrackingMapState extends State<LiveTrackingMap>
       }
     }
 
-    // Never follow a placeholder position, or the camera locks onto the
-    // restaurant and the customer cannot see the rest of the route.
-    if (_isAutoFollowEnabled && widget.hasRider) {
-      _controller?.moveCamera(CameraUpdate.newLatLng(_current));
-    }
+    // No per-frame camera move: centring on the rider 20 times a second threw
+    // away the framing of the destination and fought every animateCamera.
+    // The camera re-frames on each new position instead — see _maybeAutoFit.
   }
 
   bool _isAutoFollowEnabled = true;
+
+  /// Re-frames rider + next stop on a fresh position, at most every few
+  /// seconds so the camera is not constantly in motion.
+  void _maybeAutoFit() {
+    final now = DateTime.now();
+    final last = _lastAutoFit;
+    if (last != null && now.difference(last) < _autoFitGap) return;
+    _lastAutoFit = now;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _isAutoFollowEnabled) _fitBounds();
+    });
+  }
+
+  /// A real pan/pinch by the user switches auto-follow off until they tap
+  /// recenter. Detected from raw pointers: onCameraMoveStarted also fires for
+  /// the map's own programmatic moves, which used to switch follow off the
+  /// moment the first fitBounds ran.
+  void _onPointerDown(PointerDownEvent e) {
+    _pointerDownAt[e.pointer] = e.position;
+    if (_pointerDownAt.length > 1) _stopAutoFollow(); // pinch / two-finger
+  }
+
+  void _onPointerMove(PointerMoveEvent e) {
+    final start = _pointerDownAt[e.pointer];
+    if (start != null && (e.position - start).distance > 12) _stopAutoFollow();
+  }
+
+  void _onPointerUp(PointerEvent e) => _pointerDownAt.remove(e.pointer);
+
+  void _stopAutoFollow() {
+    if (_isAutoFollowEnabled) setState(() => _isAutoFollowEnabled = false);
+  }
 
   Future<void> _zoomIn() async {
     _controller?.animateCamera(CameraUpdate.zoomIn());
@@ -661,10 +793,14 @@ class _LiveTrackingMapState extends State<LiveTrackingMap>
         Marker(
           markerId: const MarkerId('rider'),
           position: _current,
-          // Derived from movement, not the device heading — see bearingBetween.
+          // Movement-derived bearing, falling back to the device heading for
+          // jitter-sized hops — see bearingBetween. flat: true makes the
+          // rotation relative to the map (north), so it stays correct when the
+          // user rotates the map; anchored at the centre so it pivots in place.
           rotation: (_bearing + _iconHeadingOffset) % 360,
           anchor: const Offset(0.5, 0.5),
           flat: true,
+          zIndexInt: 2,
           icon: _bikeIcon ?? BitmapDescriptor.defaultMarkerWithHue(HSLColor.fromColor(AppColors.primary).hue),
           infoWindow: const InfoWindow(title: 'Delivery partner'),
         ),
@@ -713,27 +849,75 @@ class _LiveTrackingMapState extends State<LiveTrackingMap>
     };
   }
 
+  /// Fallback when there is no road route at all (route endpoint missing, RTDB
+  /// polyline empty): a dotted straight line from the rider to their next
+  /// stop. Dotted for the same reason as the connector — it is a direction,
+  /// not a road.
+  Set<Polyline> _riderToStopPolyline() {
+    if (!widget.hasRider || _route.isNotEmpty) return const {};
+    final double? lat = widget.headingToCustomer ? widget.customerLat : widget.restaurantLat;
+    final double? lng = widget.headingToCustomer ? widget.customerLng : widget.restaurantLng;
+    if (lat == null || lng == null) return const {};
+    final stop = LatLng(lat, lng);
+    if (_distanceMeters(_current, stop) < 5) return const {};
+    return {
+      Polyline(
+        polylineId: const PolylineId('rider_to_stop'),
+        color: AppColors.primary,
+        width: 4,
+        points: [_current, stop],
+        patterns: [PatternItem.dot, PatternItem.gap(10)],
+        startCap: Cap.roundCap,
+        endCap: Cap.roundCap,
+        geodesic: true,
+      ),
+    };
+  }
+
+  /// Everything drawn this frame. After pickup with no road route, the
+  /// restaurant->customer arc is stale context, so the rider line replaces it.
+  Set<Polyline> _allPolylines() {
+    final dropPendingArc = _route.isEmpty && widget.hasRider && widget.headingToCustomer;
+    return {
+      if (!dropPendingArc) ..._polylines,
+      ..._connectorPolyline(),
+      ..._riderToStopPolyline(),
+    };
+  }
+
   Future<void> _fitBounds() async {
     final controller = _controller;
     if (controller == null) return;
 
+    // With a located rider, frame the rider and their NEXT stop only: the
+    // restaurant before pickup, the customer after. Framing all three kept the
+    // camera zoomed out on a leg that was already done.
+    final hasRider = widget.hasRider;
+    final includeRestaurant = !hasRider || !widget.headingToCustomer;
+    final includeCustomer = !hasRider || widget.headingToCustomer;
     final pts = <LatLng>[
       // Same fallback trap as the marker: without a fix these are the
       // restaurant's coordinates, so including them would silently weight the
       // camera towards a place the rider may not be.
-      if (widget.hasRider) LatLng(widget.riderLat!, widget.riderLng!),
-      if (widget.restaurantLat != null && widget.restaurantLng != null)
+      if (hasRider) LatLng(widget.riderLat!, widget.riderLng!),
+      if (includeRestaurant && widget.restaurantLat != null && widget.restaurantLng != null)
         LatLng(widget.restaurantLat!, widget.restaurantLng!),
-      if (widget.customerLat != null && widget.customerLng != null)
+      if (includeCustomer && widget.customerLat != null && widget.customerLng != null)
         LatLng(widget.customerLat!, widget.customerLng!),
       // The route can bow well away from the straight line between those
       // three points on real roads — without these, the camera can crop
       // the middle of the polyline right off the edge of the visible map.
       // Only the untravelled remainder: fitting the whole original route keeps
-      // zooming out to include road the rider already left behind.
-      if (_route.isNotEmpty) ..._route.sublist(_progressIndex),
+      // zooming out to include road the rider already left behind. Before
+      // pickup the route may be the restaurant->customer leg, which is not
+      // where the rider is going yet, so it is left out then.
+      if (_route.isNotEmpty && includeCustomer) ..._route.sublist(_progressIndex),
     ];
-    if (pts.length < 2) return;
+    if (pts.isEmpty) return;
+    if (pts.length < 2) {
+      await _animateSafely(controller, CameraUpdate.newLatLngZoom(pts.first, 16));
+      return;
+    }
 
     double minLat = pts.first.latitude, maxLat = pts.first.latitude;
     double minLng = pts.first.longitude, maxLng = pts.first.longitude;
@@ -750,15 +934,34 @@ class _LiveTrackingMapState extends State<LiveTrackingMap>
         'bounds=($minLat,$minLng)-($maxLat,$maxLng)',
       );
     }
-    await controller.animateCamera(
-      CameraUpdate.newLatLngBounds(
-        LatLngBounds(
-          southwest: LatLng(minLat, minLng),
-          northeast: LatLng(maxLat, maxLng),
-        ),
-        56,
-      ),
+    // Rider almost at the stop: a bounds fit would zoom in to building level.
+    final tiny = (maxLat - minLat) < 0.0015 && (maxLng - minLng) < 0.0015;
+    await _animateSafely(
+      controller,
+      tiny
+          ? CameraUpdate.newLatLngZoom(
+              LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2),
+              16.5,
+            )
+          : CameraUpdate.newLatLngBounds(
+              LatLngBounds(
+                southwest: LatLng(minLat, minLng),
+                northeast: LatLng(maxLat, maxLng),
+              ),
+              56,
+            ),
     );
+  }
+
+  /// animateCamera throws if the platform view has no size yet (e.g. a
+  /// bounds update fired before layout) or after the controller is disposed.
+  /// A missed re-frame is harmless; an uncaught exception is not.
+  Future<void> _animateSafely(GoogleMapController controller, CameraUpdate update) async {
+    try {
+      await controller.animateCamera(update);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[MAP] Camera update skipped: $e');
+    }
   }
 
   @override
@@ -774,11 +977,16 @@ class _LiveTrackingMapState extends State<LiveTrackingMap>
 
     return Stack(
       children: [
-        GoogleMap(
+        Listener(
+          onPointerDown: _onPointerDown,
+          onPointerMove: _onPointerMove,
+          onPointerUp: _onPointerUp,
+          onPointerCancel: _onPointerUp,
+          child: GoogleMap(
           style: MapStyles.mutedGrey,
           initialCameraPosition: _frozenInitialCamera,
           markers: _buildMarkers(),
-          polylines: {..._polylines, ..._connectorPolyline()},
+          polylines: _allPolylines(),
           gestureRecognizers: _mapGestureRecognizers,
           myLocationEnabled: false,
           myLocationButtonEnabled: false,
@@ -790,15 +998,11 @@ class _LiveTrackingMapState extends State<LiveTrackingMap>
           mapToolbarEnabled: false,
           compassEnabled: true,
           liteModeEnabled: false,
-          onCameraMoveStarted: () {
-            if (_isAutoFollowEnabled) {
-              setState(() => _isAutoFollowEnabled = false);
-            }
-          },
           onMapCreated: (c) {
             _controller = c;
             WidgetsBinding.instance.addPostFrameCallback((_) => _fitBounds());
           },
+          ),
         ),
 
         // Floating Zoom In / Zoom Out / Recenter Control Buttons

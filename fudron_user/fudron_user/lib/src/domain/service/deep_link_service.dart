@@ -63,9 +63,9 @@ class DeepLinkService {
       restaurantId: restaurantId,
     );
     final prefix = (restaurantName != null && restaurantName.isNotEmpty)
-        ? 'Check out "$productName" from $restaurantName on Fudron!'
-        : 'Check out "$productName" on Fudron!';
-    return '$prefix\n\nOrder now on Fudron:\n$link';
+        ? 'Check out "$productName" from $restaurantName on Cravioo!'
+        : 'Check out "$productName" on Cravioo!';
+    return '$prefix\n\nOrder now on Cravioo:\n$link';
   }
 
   /// Generates human-friendly share text for a restaurant.
@@ -78,7 +78,7 @@ class DeepLinkService {
     final descriptor = (cuisines != null && cuisines.isNotEmpty)
         ? '$restaurantName ($cuisines)'
         : restaurantName;
-    return 'Check out $descriptor on Fudron!\n\nOrder now on Fudron:\n$link';
+    return 'Check out $descriptor on Cravioo!\n\nOrder now on Cravioo:\n$link';
   }
 
   /// Parses a deep link Uri to extract product ID and restaurant ID.

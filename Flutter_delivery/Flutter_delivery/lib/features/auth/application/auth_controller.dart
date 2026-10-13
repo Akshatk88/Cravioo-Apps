@@ -47,6 +47,35 @@ class AuthController extends Notifier<AuthState> {
     );
   }
 
+  /// Re-reads the profile without a loading state (so the router never
+  /// redirects): picks up admin changes such as maxConcurrentOrders.
+  Future<void> refreshProfileQuietly() async {
+    if (state is! AuthAuthenticated) return;
+    final result = await _repository.getMe();
+    result.when(
+      success: (user) {
+        final current = state;
+        // Only when something the app acts on changed: every auth state
+        // change makes the router re-run its redirect.
+        if (current is AuthAuthenticated &&
+            user.isApproved &&
+            current.user.maxConcurrentOrders != user.maxConcurrentOrders) {
+          state = AuthAuthenticated(user);
+        }
+      },
+      failure: (_) {},
+    );
+  }
+
+  /// Swaps the signed-in partner's profile photo in place (no reload, so the
+  /// router never sees a loading state).
+  void updateProfilePhoto(String url) {
+    final current = state;
+    if (current is AuthAuthenticated) {
+      state = AuthAuthenticated(current.user.copyWith(profilePhoto: url));
+    }
+  }
+
   void _applyPartnerStatus(DeliveryPartner user) {
     unawaited(ref.read(fcmServiceProvider).registerToken());
     if (user.isApproved) {

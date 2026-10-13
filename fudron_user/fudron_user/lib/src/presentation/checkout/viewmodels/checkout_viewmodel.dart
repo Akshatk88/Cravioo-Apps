@@ -258,7 +258,7 @@ class CheckoutViewModel extends Notifier<CheckoutState> {
     final order = placed.result?['order'] as Map<String, dynamic>?;
     final orderId = (order?['_id'] ?? order?['orderMongoId'] ?? '').toString();
 
-    // For non-gateway payment methods (Cash on Delivery, Fudron Wallet & Pay Later)
+    // For non-gateway payment methods (Cash on Delivery, Cravioo Wallet & Pay Later)
     if (paymentMethod == 'cash' || paymentMethod == 'wallet' || paymentMethod == 'pay_later') {
       ref.read(cartViewModelProvider.notifier).clearCart();
       unawaited(
@@ -274,7 +274,7 @@ class CheckoutViewModel extends Notifier<CheckoutState> {
         message: switch (paymentMethod) {
           'cash' => 'Order placed with Cash on Delivery 🎉',
           'pay_later' => 'Order placed on Pay Later 🎉',
-          _ => 'Order paid successfully using Fudron Wallet 🎉',
+          _ => 'Order paid successfully using Cravioo Wallet 🎉',
         },
         orderId: orderId,
       );

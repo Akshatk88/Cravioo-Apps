@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:food_user_application/core/services/location_service.dart';
 import 'package:food_user_application/core/services/update_service.dart';
 
 import '../../../auth/application/auth_controller.dart';
@@ -57,7 +60,17 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     }
 
     _navigated = true;
+    _askLocationThenGo();
+  }
+
+  /// Location is asked for right after install/launch rather than when the
+  /// rider first taps "Go online". Navigation never waits on it: the prompt
+  /// can hang (another permission request in flight, OEM dialogs), and when it
+  /// was awaited here the app sat on the splash forever.
+  void _askLocationThenGo() {
+    final location = ref.read(locationServiceProvider);
     context.go('/onboarding');
+    unawaited(location.requestAtLaunch());
   }
 
   @override

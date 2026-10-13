@@ -34,14 +34,32 @@ class OrdersRepository {
   }
 
   Future<Result<DeliveryOrder?, AppError>> getCurrentOrder() async {
+    final result = await getActiveOrders();
+    return result.when(
+      success: (r) => Result.success(r.current),
+      failure: (e) => Result.failure(e),
+    );
+  }
+
+  /// GET /orders/current: `activeOrder` (most recently updated trip) plus
+  /// `activeOrders`, every order the partner holds — more than one only for a
+  /// partner whose admin-set maxConcurrentOrders is above 1.
+  Future<Result<({DeliveryOrder? current, List<DeliveryOrder> all}), AppError>>
+      getActiveOrders() async {
     try {
       final res = await _dio.get(ApiEndpoints.ordersCurrent);
       final data = res.data['data'] as Map<String, dynamic>?;
       final activeOrder = data?['activeOrder'];
-      if (activeOrder == null) return const Result.success(null);
-      return Result.success(
-        DeliveryOrder.fromJson(activeOrder as Map<String, dynamic>),
-      );
+      final current = activeOrder is Map<String, dynamic>
+          ? DeliveryOrder.fromJson(activeOrder)
+          : null;
+      final list = (data?['activeOrders'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(DeliveryOrder.fromJson)
+          .toList();
+      // Older backends send only activeOrder.
+      if (list.isEmpty && current != null) list.add(current);
+      return Result.success((current: current, all: list));
     } on DioException catch (e) {
       return Result.failure(_mapError(e));
     }
@@ -97,8 +115,15 @@ class OrdersRepository {
     }
   }
 
-  Future<Result<DeliveryOrder, AppError>> complete(String orderId) =>
-      _patchOrder(ApiEndpoints.orderComplete(orderId));
+  /// [paymentMode] `'cash'` tells the backend the rider collected cash for a
+  /// COD order (completeDelivery marks it paid and records the method).
+  Future<Result<DeliveryOrder, AppError>> complete(
+    String orderId, {
+    String? paymentMode,
+  }) => _patchOrder(
+    ApiEndpoints.orderComplete(orderId),
+    data: paymentMode != null ? {'paymentMode': paymentMode} : null,
+  );
 
   Future<Result<Map<String, dynamic>, AppError>> collectQr(
     String orderId, {
@@ -132,37 +157,46 @@ class OrdersRepository {
     }
   }
 
+  /// Set once the backend answers 404 for the route endpoint, so the app stops
+  /// re-requesting a route that does not exist (it used to retry every 30 s
+  /// and on every GPS fix while the polyline was empty).
+  static bool _routeEndpointMissing = false;
+
+  /// Road route from the rider to [target]. Never fails: when the backend has
+  /// no route (GET /orders/:id/route is not implemented server-side — 404) or
+  /// the call errors, it returns an empty polyline and the map screens draw a
+  /// straight line to the destination instead.
   Future<Result<Map<String, dynamic>, AppError>> getRoute(
     String orderId, {
     required double lat,
     required double lng,
     required String target,
   }) async {
+    const fallback = <String, dynamic>{'polyline': '', 'fallback': true};
+    if (_routeEndpointMissing) return const Result.success(fallback);
     try {
       final res = await _dio.get(
         ApiEndpoints.orderRoute(orderId),
         queryParameters: {'lat': lat, 'lng': lng, 'target': target},
       );
-      return Result.success(res.data['data'] as Map<String, dynamic>);
+      final data = res.data is Map ? res.data['data'] : null;
+      return Result.success(data is Map<String, dynamic> ? data : fallback);
     } on DioException catch (e) {
-      return Result.failure(_mapError(e));
+      if (e.response?.statusCode == 404) _routeEndpointMissing = true;
+      return const Result.success(fallback);
+    } catch (_) {
+      return const Result.success(fallback);
     }
   }
 
+  /// Records that the rider collected cash for a COD order.
+  ///
+  /// The backend has no `POST /orders/:id/collect/cash` (only collect/qr), so
+  /// this no longer calls it (it always 404'd). Cash collection is confirmed
+  /// server-side by `PATCH /orders/:id/complete` with `{paymentMode: 'cash'}`,
+  /// which marks a COD order paid — see [complete].
   Future<Result<bool, AppError>> collectCash(String orderId) async {
-    try {
-      final res = await _dio.post(ApiEndpoints.collectCash(orderId));
-      final data = res.data['data'] as Map<String, dynamic>?;
-      return Result.success(data?['success'] as bool? ?? true);
-    } on DioException catch (e) {
-      if (e.response?.statusCode == 404) {
-        // Backend completes and locks cash orders during /complete endpoint
-        return const Result.success(true);
-      }
-      return Result.failure(_mapError(e));
-    } catch (e) {
-      return const Result.success(true);
-    }
+    return const Result.success(true);
   }
 
   Future<Result<bool, AppError>> rateCustomer(

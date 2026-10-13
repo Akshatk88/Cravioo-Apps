@@ -62,6 +62,13 @@ class TokenStorage {
   }) async {
     await _storage.write(key: _restaurantIdKey, value: id);
     await _storage.write(key: _restaurantStatusKey, value: status);
+    // Mirrored to SharedPreferences so the native new-order alert can tell whether
+    // an order belongs to the outlet signed in right now, with no engine running
+    // (it reads "flutter.restaurant_id").
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('restaurant_id', id);
+    } catch (_) {}
   }
 
   Future<String?> get restaurantId => _storage.read(key: _restaurantIdKey);
@@ -93,6 +100,7 @@ class TokenStorage {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_accessTokenKey);
+      await prefs.remove(_restaurantIdKey);
     } catch (_) {}
     // NOTE: _registrationTokenKey is intentionally NOT cleared here
     // so onboarding can survive app restarts / session clears.

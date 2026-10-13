@@ -27,16 +27,45 @@ class PushDeepLink {
   final String? orderMongoId;
   final String? link;
 
+  /// Chat pushes: the thread and who wrote the message.
+  final String? conversationId;
+  final String? senderRole;
+  final String? senderId;
+  final String? senderName;
+
+  /// The order's status at the time of the push, when the payload carries it.
+  final String? orderStatus;
+
   const PushDeepLink({
     required this.type,
     this.orderId,
     this.orderMongoId,
     this.link,
+    this.conversationId,
+    this.senderRole,
+    this.senderId,
+    this.senderName,
+    this.orderStatus,
   });
 
   /// The id to open a tracking screen with — the Mongo id is what
   /// `GET /food/orders/:orderId` expects.
-  String? get trackableOrderId => orderMongoId ?? orderId;
+  String? get trackableOrderId => _nonEmpty(orderMongoId) ?? _nonEmpty(orderId);
+
+  /// A chat message push. Checked BEFORE [isOrderEvent]: a type such as
+  /// `delivery_chat_message` would otherwise be routed to order tracking.
+  ///
+  /// The backend chat module is not in this repo snapshot, so this accepts
+  /// every shape it plausibly sends: any type mentioning chat/message, a
+  /// payload carrying a conversationId, or a `/chat` link.
+  bool get isChatEvent {
+    final t = type.toLowerCase();
+    if (t.contains('chat') || t == 'message' || t == 'new_message' || t == 'message_received') {
+      return true;
+    }
+    if (_nonEmpty(conversationId) != null) return true;
+    return link?.contains('/chat') ?? false;
+  }
 
   bool get isOrderEvent =>
       type.startsWith('order_') ||
@@ -44,12 +73,39 @@ class PushDeepLink {
       type == 'payment_success' ||
       type == 'delivery_accepted';
 
+  /// The order was cancelled (by the customer, restaurant, admin or system).
+  /// There is nothing to track any more, so a tap goes Home instead of opening a
+  /// tracking screen that would only show a spinner and then bounce.
+  bool get isCancelledOrder {
+    final t = type.toLowerCase();
+    final s = (orderStatus ?? '').toLowerCase();
+    return t.contains('cancel') || s.startsWith('cancel') || s == 'rejected';
+  }
+
+  /// Whether a tap on this push has somewhere to go.
+  bool get isRoutable => isChatEvent || (isOrderEvent && trackableOrderId != null);
+
+  static String? _nonEmpty(String? v) => (v == null || v.trim().isEmpty) ? null : v.trim();
+
+  static String? _str(Map<String, dynamic> data, List<String> keys) {
+    for (final k in keys) {
+      final v = data[k]?.toString();
+      if (v != null && v.trim().isNotEmpty && v != 'null') return v.trim();
+    }
+    return null;
+  }
+
   factory PushDeepLink.fromData(Map<String, dynamic> data) {
     return PushDeepLink(
-      type: (data['type'] ?? '').toString(),
-      orderId: data['orderId']?.toString(),
-      orderMongoId: data['orderMongoId']?.toString(),
-      link: data['link']?.toString(),
+      type: (data['type'] ?? data['notificationType'] ?? '').toString(),
+      orderId: _str(data, const ['orderId', 'order_id']),
+      orderMongoId: _str(data, const ['orderMongoId', 'orderObjectId']),
+      link: _str(data, const ['link', 'deepLink', 'route']),
+      conversationId: _str(data, const ['conversationId', 'threadId', 'chatId']),
+      senderRole: _str(data, const ['senderRole', 'fromRole', 'peerRole']),
+      senderId: _str(data, const ['senderId', 'fromId', 'peerId']),
+      senderName: _str(data, const ['senderName', 'fromName', 'peerName']),
+      orderStatus: _str(data, const ['orderStatus', 'status']),
     );
   }
 }
@@ -182,12 +238,9 @@ Notification Type: ${link.type}''');
           _log('Notification clicked.');
           if (response.payload != null && response.payload!.isNotEmpty) {
             try {
-              final Map<String, dynamic> data = jsonDecode(response.payload!);
-              final link = PushDeepLink.fromData(data);
-              if (link.isOrderEvent && link.trackableOrderId != null) {
-                _log('Opening Order Tracking screen.');
-                _onDeepLink?.call(link);
-              }
+              final decoded = jsonDecode(response.payload!);
+              if (decoded is! Map) return;
+              _dispatch(PushDeepLink.fromData(Map<String, dynamic>.from(decoded)));
             } catch (e) {
               _log('Error handling notification tap payload: $e');
             }
@@ -198,6 +251,43 @@ Notification Type: ${link.type}''');
       await _localNotifications
           .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
           ?.createNotificationChannel(androidChannel);
+
+      // Tap handlers are wired BEFORE permission/token work: a failure there
+      // (no network for getToken, a denied permission) used to abort
+      // initialize() before the tap that launched the app was ever read.
+
+      // STEP 12: NOTIFICATION CLICK (BACKGROUND)
+      _onOpenedSub = FirebaseMessaging.onMessageOpenedApp.listen((message) {
+        _logNotificationDetails('Background', message);
+        _route(message);
+      });
+
+      // STEP 11: TERMINATED NOTIFICATION (FCM tray notification)
+      try {
+        final initial = await _messaging.getInitialMessage();
+        _log('Initial Message Checked');
+        if (initial != null) {
+          _logNotificationDetails('Terminated', initial);
+          _route(initial);
+        }
+      } catch (e) {
+        _log('getInitialMessage failed: $e');
+      }
+
+      // TERMINATED via a LOCAL notification (one shown while the app was in
+      // the foreground, then the app was killed before it was tapped).
+      try {
+        final launch = await _localNotifications.getNotificationAppLaunchDetails();
+        final payload = launch?.notificationResponse?.payload;
+        if ((launch?.didNotificationLaunchApp ?? false) && payload != null && payload.isNotEmpty) {
+          final decoded = jsonDecode(payload);
+          if (decoded is Map) {
+            _dispatch(PushDeepLink.fromData(Map<String, dynamic>.from(decoded)));
+          }
+        }
+      } catch (e) {
+        _log('Launch-details check failed: $e');
+      }
 
       // STEP 2: NOTIFICATION PERMISSION
       _log('Permission Requested');
@@ -280,20 +370,6 @@ Notification Type: ${link.type}''');
           _log('Failed to display local notification: $e');
         }
       });
-
-      // STEP 12: NOTIFICATION CLICK (BACKGROUND)
-      _onOpenedSub = FirebaseMessaging.onMessageOpenedApp.listen((message) {
-        _logNotificationDetails('Background', message);
-        _route(message);
-      });
-
-      // STEP 11: TERMINATED NOTIFICATION
-      final initial = await _messaging.getInitialMessage();
-      _log('Initial Message Checked');
-      if (initial != null) {
-        _logNotificationDetails('Terminated', initial);
-        _route(initial);
-      }
 
       // STEP 4: TOKEN REFRESH
       _onTokenRefreshSub = _messaging.onTokenRefresh.listen((newToken) {
@@ -417,12 +493,20 @@ Notification Type: ${link.type}''');
   void _route(RemoteMessage message) {
     final data = message.data;
     if (data.isEmpty) return;
-    final link = PushDeepLink.fromData(Map<String, dynamic>.from(data));
     _log('Notification clicked.');
-    if (link.isOrderEvent && link.trackableOrderId != null) {
-      _log('Opening Order Tracking screen.');
-      _onDeepLink?.call(link);
+    _dispatch(PushDeepLink.fromData(Map<String, dynamic>.from(data)));
+  }
+
+  /// Single hand-off point for all three tap paths (local notification,
+  /// onMessageOpenedApp, getInitialMessage). The app side queues the link
+  /// until the router and auth are ready.
+  void _dispatch(PushDeepLink link) {
+    if (!link.isRoutable) {
+      _log('Tap has no destination (type=${link.type}).');
+      return;
     }
+    _log(link.isChatEvent ? 'Opening chat.' : 'Opening Order Tracking screen.');
+    _onDeepLink?.call(link);
   }
 
   void _printDebugSummary() {

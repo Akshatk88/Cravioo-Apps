@@ -71,6 +71,19 @@ class NewOrderActionChannel {
     }
   }
 
+  /// Read-and-clear: the outlet the tapped alert belongs to, set together with the
+  /// incoming order id. Null when the alert carried none.
+  static Future<String?> consumePendingIncomingOutlet() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      final res = await _channel.invokeMethod<dynamic>('consumePendingIncomingOutlet');
+      final id = res?.toString();
+      return (id == null || id.isEmpty) ? null : id;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Read-and-clear, so the same decision is never acted on twice.
   ///
   /// Call on start AND on resume: a decision made on the lock screen with the app

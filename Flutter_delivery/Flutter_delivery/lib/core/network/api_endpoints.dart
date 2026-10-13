@@ -19,7 +19,9 @@ class ApiEndpoints {
       '/food/delivery/profile/photo-base64';
   static const String profileBankDetails =
       '/food/delivery/profile/bank-details';
-  static const String deleteAccount = '/food/delivery/profile/account';
+  // Backend: DELETE /food/delivery/profile (delivery.routes.js). The old
+  // '/profile/account' path does not exist, so deleting always failed.
+  static const String deleteAccount = '/food/delivery/profile';
   static const String reverify = '/food/delivery/reverify';
 
   // Availability
@@ -91,6 +93,7 @@ class ApiEndpoints {
   // Chat
   static const String chatMessages = '/food/chat/messages';
   static const String chatConversations = '/food/chat/conversations';
+  static const String chatConversationOpen = '/food/chat/conversations/open';
   static String chatConversationRead(String conversationId) =>
       '/food/chat/conversations/$conversationId/read';
 

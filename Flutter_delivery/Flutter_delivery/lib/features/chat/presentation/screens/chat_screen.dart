@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:food_user_application/core/error/result.dart';
+import 'package:food_user_application/core/services/fcm_service.dart';
 import 'package:food_user_application/core/services/haptic_service.dart';
 import 'package:food_user_application/core/services/socket_service.dart';
 import 'package:food_user_application/features/chat/data/chat_repository.dart';
@@ -11,9 +12,13 @@ import 'package:food_user_application/features/chat/data/models/chat_message.dar
 import 'package:food_user_application/features/orders/data/models/delivery_order.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
-  const ChatScreen({super.key, required this.order});
+  const ChatScreen({super.key, required this.order, this.conversationId});
 
   final DeliveryOrder order;
+
+  /// Thread id when known up front (e.g. from a chat push); otherwise it is
+  /// looked up from the rider's conversation list by order id.
+  final String? conversationId;
 
   @override
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
@@ -35,6 +40,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    activeChatOrderId = widget.order.id;
+    activeChatConversationId = widget.conversationId;
     _load();
     final socket = ref.read(socketServiceProvider);
     _messageSub = socket.onChatMessage.listen(_onSocketMessage);
@@ -43,6 +50,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   void dispose() {
+    if (activeChatOrderId == widget.order.id) {
+      activeChatOrderId = null;
+      activeChatConversationId = null;
+    }
     _messageSub?.cancel();
     _typingSub?.cancel();
     _typingResetTimer?.cancel();
@@ -53,27 +64,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Future<void> _load() async {
     final repo = ref.read(chatRepositoryProvider);
-    final conversationsResult = await repo.getConversations();
-    String? conversationId;
-    conversationsResult.when(
-      success: (conversations) {
-        for (final c in conversations) {
-          if (c.orderId == widget.order.id && c.peerRole == 'USER') {
-            conversationId = c.conversationId;
-            break;
-          }
-        }
-      },
-      failure: (_) {},
-    );
+
+    // Opened from a chat notification: the push already names the thread.
+    // Otherwise open (or create) the order's conversation — the backend needs
+    // its id for every read and send; without it sends failed with
+    // "conversationId is required".
+    String? conversationId = widget.conversationId;
+    if (conversationId == null || conversationId.isEmpty) {
+      conversationId = await _ensureConversation();
+    }
+    if (!mounted) return;
+    if (conversationId != null && activeChatOrderId == widget.order.id) {
+      activeChatConversationId = conversationId;
+    }
 
     if (conversationId == null) {
-      if (mounted) setState(() => _loading = false);
+      setState(() => _loading = false);
       return;
     }
 
     _conversationId = conversationId;
-    final historyResult = await repo.getMessages(conversationId: conversationId!);
+    final historyResult = await repo.getMessages(conversationId: conversationId);
     if (!mounted) return;
     historyResult.when(
       success: (page) => setState(() {
@@ -88,6 +99,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }),
     );
     _scrollToBottom();
+  }
+
+  /// GET /food/chat/conversations/open for this order; null (with the error
+  /// shown) if the server refuses.
+  Future<String?> _ensureConversation() async {
+    final result =
+        await ref.read(chatRepositoryProvider).openConversation(widget.order.id);
+    return result.when(
+      success: (id) => id,
+      failure: (error) {
+        if (mounted) setState(() => _error = error.message);
+        return null;
+      },
+    );
   }
 
   void _onSocketMessage(Map<String, dynamic> data) {
@@ -148,10 +173,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _typingResetTimer?.cancel();
     _emitTyping(false);
 
+    final conversationId = _conversationId ?? await _ensureConversation();
+    if (!mounted) return;
+    if (conversationId == null) {
+      setState(() {
+        _error ??= 'Could not open chat. Please try again.';
+        _sending = false;
+        _textController.text = text;
+      });
+      return;
+    }
+    _conversationId = conversationId;
+
     final result = await ref.read(chatRepositoryProvider).sendMessage(
-          peerRole: 'USER',
-          peerId: widget.order.customerId,
-          orderId: widget.order.id,
+          conversationId: conversationId,
           text: text,
         );
     if (!mounted) return;

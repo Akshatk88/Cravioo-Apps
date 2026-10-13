@@ -18,19 +18,21 @@ import '../network/api_endpoints.dart';
 import '../network/dio_client.dart';
 import '../storage/token_storage.dart';
 import 'new_order_action_channel.dart';
-import 'new_order_overlay_bridge.dart';
+import 'order_overlay_service.dart';
 import 'order_resolution_tracker.dart';
 
 /// Dedicated channel for incoming-order alerts — separate from
 /// [_ordersChannel] because it needs call-category / full-screen-intent
 /// semantics that a plain order-status-update notification shouldn't have.
 const _incomingOrdersChannel = AndroidNotificationChannel(
-  'incoming_orders_channel_v6',
+  'incoming_orders_channel_v7',
   'Incoming Orders',
   description: 'Full-screen incoming order alerts that require immediate action',
   importance: Importance.max,
-  playSound: true,
-  sound: RawResourceAndroidNotificationSound('tujh_bin1'),
+  // Silent: the looping native NewOrderRingtone is the only ring. A channel
+  // sound on top of it played the tone twice. (Channel sound is frozen per id,
+  // hence the v7 bump.)
+  playSound: false,
 );
 
 const _ordersChannel = AndroidNotificationChannel(
@@ -48,6 +50,21 @@ const _ordersChannel = AndroidNotificationChannel(
 /// the alert its order raised. Masked positive because Android ids are ints and a
 /// negative one is not portable across the plugin.
 int incomingOrderNotificationId(String orderId) => orderId.hashCode & 0x7fffffff;
+
+/// Push `type`s the backend uses for chat messages (food/chat service sends
+/// `{type: 'chat_message', conversationId, orderId}`).
+const _chatPushTypes = {'chat_message', 'chat'};
+
+/// Whether a push / notification payload is a chat message rather than an
+/// order event. Chat pushes also carry `orderId`, so every order-alert path
+/// must check this first or it will treat a chat as an order offer.
+bool isChatPush(Map<String, dynamic> data) =>
+    _chatPushTypes.contains(data['type']?.toString());
+
+/// Conversation currently on screen (set by ChatScreen), so a foreground chat
+/// push for the thread the rider is already reading doesn't raise a banner.
+String? activeChatConversationId;
+String? activeChatOrderId;
 
 String? _orderIdOf(Map<String, dynamic> data) {
   final id = (data['orderMongoId'] ??
@@ -73,9 +90,7 @@ String? _orderIdOf(Map<String, dynamic> data) {
 Future<void> dismissIncomingOrderAlert(String orderId) async {
   await NewOrderActionChannel.stopSound(orderId);
   await NewOrderActionChannel.dismiss(orderId);
-  // The native overlay is taken down by NewOrderMessagingService on the same push;
-  // this covers the app-alive paths (accept/decline/socket withdrawal).
-  await NewOrderOverlayBridge.dismiss();
+  await OrderOverlayService.closeForOrder(orderId);
   final localNotifications = FlutterLocalNotificationsPlugin();
   await localNotifications.initialize(
     const InitializationSettings(
@@ -222,22 +237,22 @@ Future<String?> _fetchRemoteOrderStatus(String orderId) async {
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
 
+  // Chat pushes arrive with a notification block, so the OS tray shows them and
+  // a tap is delivered via onMessageOpenedApp / getInitialMessage. Nothing to do
+  // here — in particular they must not run the order-alert logic below.
+  if (isChatPush(message.data)) return;
+
   final type = message.data['type']?.toString();
-
-  // Android owns new orders natively (NewOrderMessagingService). The plugin's
-  // receiver starts this handler independently of that service, so returning
-  // early there cannot stop it — it has to return here, before anything is posted.
-  if (Platform.isAndroid && type == 'new_order') {
-    debugPrint('[NEW_ORDER] handled natively — Dart posts nothing');
-    return;
-  }
-
   final orderId = _orderIdOf(message.data);
   String? orderStatus = (message.data['orderStatus'] ?? message.data['status'])?.toString().toLowerCase();
   final title = (message.data['title'] ?? message.notification?.title ?? '').toString().toLowerCase();
   final body = (message.data['body'] ?? message.notification?.body ?? '').toString().toLowerCase();
 
-  final isOrderReadyType = type == 'order_ready' ||
+  // A dispatch offer is only ever sent once the food is ready_for_pickup, but
+  // carries no orderStatus, and the status lookup is 403 for an unassigned
+  // rider, so the offer counts as ready by itself (see NewOrderMessagingService).
+  final isOrderReadyType = type == 'new_order_available' ||
+      type == 'order_ready' ||
       type == 'order_ready_for_pickup' ||
       title.contains('ready for pickup') ||
       title.contains('order ready') ||
@@ -258,6 +273,10 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       orderStatus == 'placed' ||
       orderStatus == 'confirmed' ||
       orderStatus == 'preparing')) || (!isReady && orderStatus != null);
+
+  // Restaurant "Resend to drivers" re-offers an order this rider may have
+  // already missed or declined; let the fresh offer through.
+  if (type == 'new_order_available') OrderResolutionTracker.reopenForNewOffer(orderId);
 
   final isDismiss = type == 'order_taken' ||
       type == 'order_deassigned' ||
@@ -289,12 +308,11 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   }
 
   if (Platform.isAndroid) {
-    // Android posts the card — or, failing that, the notification — natively in
-    // NewOrderMessagingService. It has to be decided there because that is the
-    // only place that knows whether the overlay went up, and the plugin's own
-    // receiver runs this handler regardless of what the service does. Posting
-    // from here as well is what put a notification on top of the card.
-    debugPrint('[NEW_ORDER_NOTIFICATION] handled natively — Dart posts nothing');
+    // Android: the native NewOrderMessagingService already rang, posted the
+    // heads-up notification with Accept/Reject, and drew the high-priority
+    // overlay card (NewOrderOverlay.kt, same as the restaurant app). The old
+    // Flutter overlay engine started from here was unreliable in the background
+    // and is no longer used; showing anything here would only duplicate it.
     return;
   }
 
@@ -396,6 +414,33 @@ class FcmService {
       
   Stream<Map<String, dynamic>> get onNotificationReceived =>
       _notificationReceivedController.stream;
+
+  final _chatTapController = StreamController<Map<String, dynamic>>.broadcast();
+  Map<String, dynamic>? _pendingChatTap;
+
+  /// Fires when the rider taps a chat notification (local banner, background
+  /// tray tap or the tap that cold-started the app). The payload is also kept
+  /// as pending until [takePendingChatTap] claims it, because the cold-start tap
+  /// is delivered during [initialize] — before any listener may be attached.
+  Stream<Map<String, dynamic>> get onChatNotificationTap => _chatTapController.stream;
+
+  /// Returns and clears the chat tap that has not been handled yet, if any.
+  Map<String, dynamic>? takePendingChatTap() {
+    final pending = _pendingChatTap;
+    _pendingChatTap = null;
+    return pending;
+  }
+
+  /// Single entry for every notification tap: chat taps go to the chat stream,
+  /// everything else keeps flowing to the order-alert tap stream.
+  void _dispatchTap(Map<String, dynamic> data) {
+    if (isChatPush(data)) {
+      _pendingChatTap = data;
+      _chatTapController.add(data);
+      return;
+    }
+    _notificationTapController.add(data);
+  }
 
   static const _channel = _ordersChannel;
 
@@ -566,7 +611,7 @@ class FcmService {
     try {
       final decoded = jsonDecode(payload);
       if (decoded is Map) {
-        _notificationTapController.add(Map<String, dynamic>.from(decoded));
+        _dispatchTap(Map<String, dynamic>.from(decoded));
         return;
       }
     } catch (_) {
@@ -665,13 +710,21 @@ class FcmService {
   }
 
   void _showForegroundNotification(RemoteMessage message) async {
+    if (isChatPush(message.data)) {
+      await _showChatNotification(message);
+      return;
+    }
     final orderId = _orderIdOf(message.data);
     final type = message.data['type']?.toString();
     String? orderStatus = (message.data['orderStatus'] ?? message.data['status'])?.toString().toLowerCase();
     final title = (message.data['title'] ?? message.notification?.title ?? '').toString().toLowerCase();
     final rawBody = (message.data['body'] ?? message.notification?.body ?? '').toString().toLowerCase();
 
-    final isOrderReadyType = type == 'order_ready' ||
+    // A dispatch offer is only ever sent once the food is ready_for_pickup, but
+    // carries no orderStatus, and the status lookup is 403 for an unassigned
+    // rider, so the offer counts as ready by itself (see NewOrderMessagingService).
+    final isOrderReadyType = type == 'new_order_available' ||
+        type == 'order_ready' ||
         type == 'order_ready_for_pickup' ||
         title.contains('ready for pickup') ||
         title.contains('order ready') ||
@@ -692,6 +745,10 @@ class FcmService {
         orderStatus == 'placed' ||
         orderStatus == 'confirmed' ||
         orderStatus == 'preparing')) || (!isReady && orderStatus != null);
+
+    // Restaurant "Resend to drivers" re-offers an order this rider may have
+    // already missed or declined; let the fresh offer through.
+    if (type == 'new_order_available') OrderResolutionTracker.reopenForNewOffer(orderId);
 
     final isDismiss = type == 'order_taken' ||
         type == 'order_deassigned' ||
@@ -780,10 +837,9 @@ class FcmService {
             category: isNewOrderPush ? AndroidNotificationCategory.call : AndroidNotificationCategory.event,
             visibility: NotificationVisibility.public,
             icon: '@mipmap/launcher_icon',
-            playSound: true,
-            sound: isNewOrderPush
-                ? const RawResourceAndroidNotificationSound('tujh_bin1')
-                : null,
+            // A new order already rings through the native NewOrderRingtone loop;
+            // a notification sound here was the second ring.
+            playSound: !isNewOrderPush,
             styleInformation: BigTextStyleInformation(body),
             fullScreenIntent: isNewOrderPush,
             ongoing: isNewOrderPush,
@@ -845,10 +901,55 @@ class FcmService {
   }
 
   void _handleNotificationOpen(RemoteMessage message) {
-    _notificationTapController.add(message.data);
+    _dispatchTap(message.data);
+  }
+
+  /// Foreground chat push: Android does not display FCM notification blocks
+  /// while the app is in the foreground, so raise a local banner whose payload
+  /// carries the chat ids — tapping it routes through [_dispatchTap].
+  Future<void> _showChatNotification(RemoteMessage message) async {
+    final data = message.data;
+    final conversationId = data['conversationId']?.toString();
+    final orderId = data['orderId']?.toString();
+    final isOpen = (conversationId != null &&
+            conversationId.isNotEmpty &&
+            conversationId == activeChatConversationId) ||
+        (orderId != null && orderId.isNotEmpty && orderId == activeChatOrderId);
+    if (isOpen) return; // Rider is already reading this thread.
+
+    final title = message.notification?.title ??
+        data['title']?.toString() ??
+        'New message';
+    final body = message.notification?.body ?? data['body']?.toString() ?? '';
+    try {
+      await _localNotifications.show(
+        (conversationId ?? orderId ?? title).hashCode & 0x7fffffff,
+        title,
+        body,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            _defaultChannel.id,
+            _defaultChannel.name,
+            channelDescription: _defaultChannel.description,
+            importance: Importance.max,
+            priority: Priority.high,
+            category: AndroidNotificationCategory.message,
+            icon: '@mipmap/launcher_icon',
+            playSound: true,
+            autoCancel: true,
+            styleInformation: BigTextStyleInformation(body),
+          ),
+          iOS: const DarwinNotificationDetails(),
+        ),
+        payload: jsonEncode(data),
+      );
+    } catch (e) {
+      if (kDebugMode) debugPrint('[FcmService] chat notification error: $e');
+    }
   }
 
   void dispose() {
+    _chatTapController.close();
     _notificationTapController.close();
     _notificationReceivedController.close();
   }

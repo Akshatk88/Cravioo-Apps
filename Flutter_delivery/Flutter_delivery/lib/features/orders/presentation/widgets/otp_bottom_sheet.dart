@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../../../core/services/haptic_service.dart';
 
@@ -6,10 +7,21 @@ Future<String?> showOtpBottomSheet(BuildContext context, {required String custom
   return showDialog<String>(
     context: context,
     barrierDismissible: true,
-    builder: (ctx) => Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: EdgeInsets.symmetric(horizontal: 20.w),
-      child: OtpBottomSheetContent(customerName: customerName),
+    // Pinned near the top and blind to the keyboard inset: a centred Dialog
+    // re-laid itself out on every frame of the keyboard animation, which
+    // (over the live map) is what made the OTP step stutter.
+    builder: (ctx) => MediaQuery.removeViewInsets(
+      context: ctx,
+      removeBottom: true,
+      child: Dialog(
+        backgroundColor: Colors.transparent,
+        alignment: Alignment.topCenter,
+        insetAnimationDuration: Duration.zero,
+        insetPadding: EdgeInsets.fromLTRB(20.w, 110.h, 20.w, 0),
+        child: RepaintBoundary(
+          child: OtpBottomSheetContent(customerName: customerName),
+        ),
+      ),
     ),
   );
 }
@@ -29,10 +41,30 @@ class _OtpBottomSheetContentState extends State<OtpBottomSheetContent> {
   @override
   void initState() {
     super.initState();
+    // After the dialog's open animation: a focus request made during it is often
+    // dropped on device, leaving the boxes with no keyboard. Retried once in
+    // case the first request lands while the route is still settling.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _focusNode.requestFocus();
+      Future.delayed(const Duration(milliseconds: 250), () {
+        if (mounted) _openKeyboard();
+      });
+      Future.delayed(const Duration(milliseconds: 700), () {
+        // No-op when the keyboard is already up.
+        if (mounted) _openKeyboard();
+      });
     });
     _controller.addListener(_onTextChanged);
+  }
+
+  /// Opens the keyboard every time the boxes are tapped. When the keyboard was
+  /// dismissed (back button) the hidden field keeps its focus, so requestFocus()
+  /// alone is a no-op and the keyboard never came back - ask for it explicitly.
+  void _openKeyboard() {
+    if (_focusNode.hasFocus) {
+      SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+    } else {
+      _focusNode.requestFocus();
+    }
   }
 
   void _onTextChanged() {
@@ -127,7 +159,7 @@ class _OtpBottomSheetContentState extends State<OtpBottomSheetContent> {
               ),
 
               GestureDetector(
-                onTap: () => _focusNode.requestFocus(),
+                onTap: _openKeyboard,
                 behavior: HitTestBehavior.opaque,
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -177,5 +209,38 @@ class _OtpBottomSheetContentState extends State<OtpBottomSheetContent> {
         ],
       ),
     );
+  }
+}
+
+/// Runs [request] behind a small blocking "Verifying OTP…" dialog, so the screen
+/// never looks frozen while the server checks the code and a second tap cannot
+/// send it again.
+Future<T> runWithOtpProgress<T>(BuildContext context, Future<T> Function() request) async {
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const PopScope(
+      canPop: false,
+      child: Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 28, vertical: 22),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5)),
+                SizedBox(width: 16),
+                Text('Verifying OTP…', style: TextStyle(fontWeight: FontWeight.w700)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  try {
+    return await request();
+  } finally {
+    if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
   }
 }

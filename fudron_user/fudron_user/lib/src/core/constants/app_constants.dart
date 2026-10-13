@@ -9,12 +9,12 @@ class LocaleLanguageList {
   const LocaleLanguageList({required this.name, required this.lang, this.flag});
 }
 
-/// Central App Constants for Fudron User Application.
+/// Central App Constants for Cravioo User Application.
 class AppConstants {
   const AppConstants._();
 
-  static const String title = 'Fudron';
-  static const String appName = 'Fudron';
+  static const String title = 'Cravioo';
+  static const String appName = 'Cravioo';
 
   /// Merchant name shown on the Razorpay checkout sheet.
   ///

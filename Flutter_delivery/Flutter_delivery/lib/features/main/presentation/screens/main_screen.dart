@@ -49,12 +49,12 @@ class MainScreen extends ConsumerWidget {
               Container(
                 padding: EdgeInsets.all(16.r),
                 decoration: const BoxDecoration(
-                  color: Color(0xFFFEE4E2),
+                  color: Color(0xFFDDF5E6),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
                   Icons.power_settings_new_rounded,
-                  color: const Color(0xFFF04438),
+                  color: const Color(0xFF1FA84F),
                   size: 32.sp,
                 ),
               ),
@@ -124,7 +124,7 @@ class MainScreen extends ConsumerWidget {
                           Navigator.of(ctx).pop(true);
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFF04438),
+                          backgroundColor: const Color(0xFF1FA84F),
                           foregroundColor: Colors.white,
                           elevation: 0,
                           shape: RoundedRectangleBorder(

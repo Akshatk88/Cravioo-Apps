@@ -34,7 +34,6 @@ class NewOrderMessagingService : FlutterFirebaseMessagingService() {
         // first question in every "notifications aren't coming" report, and without a
         // line here it is unanswerable: a message dropped by FCM, by the OEM, or sent
         // to a stale token all look identical from the outside — nothing happens.
-        Log.d(TAG, "[FCM] MESSAGE RECEIVED (native) data=$data")
         Log.i(TAG, "FCM received: type=${data["type"]} id=${orderIdOf(data)}")
 
         // The alert is posted BEFORE super, and the ordering is load-bearing.
@@ -55,23 +54,17 @@ class NewOrderMessagingService : FlutterFirebaseMessagingService() {
                     (data["title"]?.contains("update", ignoreCase = true) == true) ||
                     (data["title"]?.contains("cancel", ignoreCase = true) == true)
 
-            val isNewOrder = !isDismiss && (
-                type in NEW_ORDER_TYPES ||
-                (type == null && (orderStatus in NEW_ORDER_STATUSES || orderStatus == null))
-            )
+            // Only an explicit new-order push rings. A push with no `type` at all used to
+            // count too, so any other message that happened to carry an order id set off
+            // the order ringtone - "every notification rings".
+            val isNewOrder = !isDismiss && type in NEW_ORDER_TYPES
 
             try {
                 if (isNewOrder) {
-                    // Backgrounded or killed: the floating card owns the alert, with
-                    // its own ringtone, and no notification goes up behind it. The
-                    // notification is the fallback when the card cannot be drawn
-                    // (permission off) — and the in-app case, where the dialog and
-                    // this notification behave exactly as they did before.
-                    if (!AppForeground.isForeground && NewOrderOverlay.show(applicationContext, data)) {
-                        Log.d(TAG, "[NEW_ORDER] overlay owns this one — no notification")
-                    } else {
-                        NewOrderNotifier.show(applicationContext, data)
-                    }
+                    NewOrderNotifier.show(applicationContext, data)
+                    // The on-screen card, only when the app itself is not showing (then
+                    // the in-app dialog owns the order).
+                    if (!AppForeground.isForeground) NewOrderOverlay.show(applicationContext, data)
                 } else if (isDismiss || orderId != null) {
                     NewOrderNotifier.dismiss(applicationContext, orderId)
                 }

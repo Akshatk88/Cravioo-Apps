@@ -9,7 +9,7 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
-  String get appName => 'Fudron';
+  String get appName => 'Cravioo';
 
   @override
   String exitMessage(Object user) {
@@ -149,7 +149,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get alreadyRegistered => 'Already registered? ';
 
   @override
-  String get newToFudron => 'New to Fudron? ';
+  String get newToFudron => 'New to Cravioo? ';
 
   @override
   String get signIn => 'Sign In';
@@ -270,7 +270,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get cashOnDelivery => 'Cash on Delivery (COD)';
 
   @override
-  String get fudronWallet => 'Fudron Wallet';
+  String get fudronWallet => 'Cravioo Wallet';
 
   @override
   String get change => 'Change';

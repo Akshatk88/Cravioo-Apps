@@ -2,7 +2,6 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:food_user_application/core/network/dio_client.dart';
 import 'package:food_user_application/features/finance/domain/finance_model.dart';
-import 'package:food_user_application/features/finance/domain/subscription_invoice_model.dart';
 import 'package:food_user_application/features/finance/domain/withdrawal_model.dart';
 
 class FinanceRepository {
@@ -19,7 +18,12 @@ class FinanceRepository {
 
   Future<List<WithdrawalModel>> listWithdrawals() async {
     final response = await _dio.get('/food/restaurant/withdrawals');
-    final list = (response.data as List? ?? []);
+    // The server answers {withdrawals: [...], total, page}; this used to assume a
+    // bare list, so the payouts screen's withdrawal list came back empty/failed.
+    final raw = response.data;
+    final list = raw is Map
+        ? (raw['withdrawals'] as List? ?? const [])
+        : (raw as List? ?? const []);
     return list
         .map(
           (e) => WithdrawalModel.fromJson(Map<String, dynamic>.from(e as Map)),
@@ -35,19 +39,6 @@ class FinanceRepository {
       '/food/restaurant/withdraw',
       data: {'amount': amount, 'bankDetails': bankDetails},
     );
-  }
-
-  Future<List<SubscriptionInvoiceModel>> listSubscriptionInvoices() async {
-    final response = await _dio.get('/food/restaurant/subscription/invoices');
-    final data = Map<String, dynamic>.from(response.data as Map);
-    final list = (data['invoices'] as List? ?? []);
-    return list
-        .map(
-          (e) => SubscriptionInvoiceModel.fromJson(
-            Map<String, dynamic>.from(e as Map),
-          ),
-        )
-        .toList();
   }
 }
 

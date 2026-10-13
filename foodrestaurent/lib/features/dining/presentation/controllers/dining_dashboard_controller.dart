@@ -10,9 +10,20 @@ class DiningDashboardController extends AsyncNotifier<DiningDashboardModel> {
 
   @override
   Future<DiningDashboardModel> build() async {
+    // build() re-runs on this same instance after an invalidate, so the
+    // listener and socket wiring are rebuilt every time instead of reused.
+    final socket = ref.read(socketServiceProvider);
+    _lifecycleListener = AppLifecycleListener(onResume: refresh);
+    ref.onDispose(() {
+      _lifecycleListener?.dispose();
+      _lifecycleListener = null;
+      if (_socketWired) {
+        socket.off('new_dining_booking');
+        socket.off('dining_booking_updated');
+      }
+      _socketWired = false;
+    });
     await _wireSocket();
-    _lifecycleListener ??= AppLifecycleListener(onResume: refresh);
-    ref.onDispose(() => _lifecycleListener?.dispose());
     return _fetch();
   }
 

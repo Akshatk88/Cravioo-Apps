@@ -1,4 +1,10 @@
+import 'dart:io';
+
+import 'package:android_intent_plus/android_intent.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'package:food_user_application/features/outlets/presentation/widgets/order_outlet_label.dart';
+import 'package:food_user_application/features/orders/presentation/widgets/resend_to_riders_button.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -146,6 +152,7 @@ class _LiveOrderCardState extends ConsumerState<LiveOrderCard> {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
+                    OrderOutletLabel(restaurantId: widget.order.restaurantId),
                   ],
                 ),
               ),
@@ -536,34 +543,89 @@ class _LiveOrderCardState extends ConsumerState<LiveOrderCard> {
   }
 
   Widget _buildActionButtons(BuildContext context) {
+    // A rider can miss the first request; offer a resend while the food is ready
+    // and nobody has taken it.
+    if (!ResendToRidersButton.isAvailableFor(widget.order)) {
+      return _buildIconRow(context);
+    }
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: ResendToRidersButton(order: widget.order, compact: true),
+        ),
+        _buildIconRow(context),
+      ],
+    );
+  }
+
+  /// Who the restaurant can phone about this order: the customer, and the rider
+  /// once one is assigned.
+  List<({String label, String phone})> get _callTargets => [
+        if (widget.order.customerPhone.trim().isNotEmpty)
+          (label: 'Customer · ${widget.order.customerName}', phone: widget.order.customerPhone.trim()),
+        if (widget.order.hasRider && widget.order.riderPhone.trim().isNotEmpty)
+          (label: 'Delivery partner · ${widget.order.riderName}', phone: widget.order.riderPhone.trim()),
+      ];
+
+  Future<void> _onCall(BuildContext context) async {
+    final targets = _callTargets;
+    if (targets.length == 1) return _dial(context, targets.first.phone);
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final t in targets)
+              ListTile(
+                leading: const Icon(Icons.phone_outlined),
+                title: Text(t.label),
+                subtitle: Text(t.phone),
+                onTap: () => Navigator.pop(sheetContext, t.phone),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked != null && context.mounted) await _dial(context, picked);
+  }
+
+  Future<void> _dial(BuildContext context, String phone) async {
+    if (Platform.isAndroid) {
+      try {
+        await AndroidIntent(action: 'android.intent.action.DIAL', data: 'tel:$phone').launch();
+        return;
+      } catch (_) {}
+    }
+    await Clipboard.setData(ClipboardData(text: phone));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Phone number copied')),
+      );
+    }
+  }
+
+  Widget _buildIconRow(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
+          // Call works now (it used to do nothing, and was disabled until a rider
+          // was assigned). The chat button had no backing feature and is gone.
           Expanded(
-            child: OutlinedButton(
-              onPressed: widget.order.hasRider ? () {} : null,
+            child: OutlinedButton.icon(
+              onPressed: _callTargets.isEmpty ? null : () => _onCall(context),
               style: OutlinedButton.styleFrom(
+                minimumSize: const Size(0, 44),
                 foregroundColor: AppColors.primaryDark,
                 side: BorderSide(color: AppColors.primaryAlpha(0.35)),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
-              child: const Icon(Icons.phone_outlined, size: 20),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: OutlinedButton(
-              onPressed: () {},
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.primaryDark,
-                side: BorderSide(color: AppColors.primaryAlpha(0.35)),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-              child: const Icon(Icons.chat_bubble_outline, size: 20),
+              icon: const Icon(Icons.phone_outlined, size: 20),
+              label: const Text('Call', style: TextStyle(fontWeight: FontWeight.w700)),
             ),
           ),
           const SizedBox(width: 12),

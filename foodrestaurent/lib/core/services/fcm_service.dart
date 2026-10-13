@@ -11,10 +11,12 @@ import 'package:go_router/go_router.dart';
 import 'package:food_user_application/config/constants/app_constants.dart';
 import 'package:food_user_application/config/router/app_router.dart';
 import 'package:food_user_application/core/network/dio_client.dart';
+import 'package:food_user_application/core/providers/core_providers.dart';
 import 'package:food_user_application/core/services/local_notification_service.dart';
 import 'package:food_user_application/core/services/order_notification_action_handler.dart';
 import 'package:food_user_application/core/services/new_order_action_channel.dart';
 import 'package:food_user_application/core/services/order_resolution_tracker.dart';
+import 'package:food_user_application/core/services/order_overlay_service.dart';
 import 'package:food_user_application/features/notifications/presentation/controllers/notifications_controller.dart';
 import 'package:food_user_application/features/orders/presentation/controllers/live_orders_controller.dart';
 import 'package:food_user_application/features/orders/presentation/views/incoming_order_dialog.dart';
@@ -27,6 +29,19 @@ const _kOrderNotificationTypes = {
   'cancel_order',
   'order_accepted',
   'order_rejected',
+};
+
+/// Pushes that mean an earlier new-order alert is no longer valid.
+const _kOverlayDismissTypes = {
+  'order_cancelled',
+  'cancel_order',
+  'order_taken',
+  'order_expired',
+  'new_order_closed',
+  'order_accepted',
+  'order_confirmed',
+  'order_rejected',
+  'order_status_update',
 };
 
 String _encodeTapPayload({String? type, String? orderId}) =>
@@ -144,15 +159,31 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     return;
   }
 
+  // The order was answered elsewhere or withdrawn: take its overlay down so a
+  // dead alert is not left on screen.
+  if (defaultTargetPlatform == TargetPlatform.android &&
+      type != 'new_order' &&
+      _kOverlayDismissTypes.contains(type)) {
+    final id = _orderIdFromData(message.data);
+    if (id != null) {
+      try {
+        await OrderOverlayService.closeForOrder(id);
+      } catch (_) {}
+    }
+    return;
+  }
+
   if (type != 'new_order') return;
 
   // On Android, native NewOrderMessagingService + NewOrderNotifier already displays
   // the high-priority alert with Accept/Reject actions and custom ringtone instantly.
   // Rendering another notification here in Dart creates a duplicate notification outside the app!
+  // The on-screen order card is drawn natively too (NewOrderOverlay.kt), straight
+  // from the push in Kotlin. It used to be raised from here through a second Flutter
+  // engine, which needs that engine to boot and the order to cross an isolate while
+  // the app is killed — on real devices it often never appeared. Nothing to do here.
   if (defaultTargetPlatform == TargetPlatform.android) {
-    if (kDebugMode) {
-      debugPrint('[FCM background] Alert already posted natively on Android. Skipping duplicate in Dart.');
-    }
+    if (kDebugMode) debugPrint('[FCM background] new_order handled natively');
     return;
   }
 
@@ -269,6 +300,14 @@ class FcmService {
   /// login happened to win the race. Push is how a restaurant learns it has an
   /// order, so one silent miss is worth three cheap retries.
   Future<bool> saveTokenToServer() async {
+    // Nothing to register against while signed out. Without this, every app
+    // launch (and every resume) fired a burst of unauthenticated requests that
+    // all came back 401 "Authentication token missing" - wasting the server's
+    // per-IP rate limit and racing with a login that was happening at the same
+    // moment.
+    final access = await _ref.read(tokenStorageProvider).accessToken;
+    if (access == null || access.isEmpty) return false;
+
     for (var attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0) {
         await Future.delayed(Duration(seconds: attempt * 2));
@@ -279,16 +318,16 @@ class FcmService {
 
       // 1. Try primary REST path /api/v1/fcm-tokens/mobile/save
       try {
-        await _dio.post('/api/v1/fcm-tokens/mobile/save', data: {'token': token, 'platform': 'mobile'});
+        await _dio.post('/food/fcm-tokens/mobile/save', data: {'token': token, 'platform': 'mobile'});
         lastRegistrationError = null;
-        if (kDebugMode) debugPrint('[FCM] token registered via /api/v1/fcm-tokens/mobile/save');
+        if (kDebugMode) debugPrint('[FCM] token registered via /food/fcm-tokens/mobile/save');
         return true;
       } catch (e1) {
-        // 2. Try proxy path /food/fcm-tokens/mobile/save
+        // 2. Try the unprefixed mount /fcm-tokens/mobile/save
         try {
-          await _dio.post('/food/fcm-tokens/mobile/save', data: {'token': token, 'platform': 'mobile'});
+          await _dio.post('/fcm-tokens/mobile/save', data: {'token': token, 'platform': 'mobile'});
           lastRegistrationError = null;
-          if (kDebugMode) debugPrint('[FCM] token registered via /food/fcm-tokens/mobile/save');
+          if (kDebugMode) debugPrint('[FCM] token registered via /fcm-tokens/mobile/save');
           return true;
         } catch (e2) {
           // 3. Fallback to /api/v1/fcm-tokens/save
@@ -352,7 +391,7 @@ class FcmService {
     _foregroundHandlingWired = true;
 
     // Start listening for foreground messages immediately so no push is missed during token sync
-    FirebaseMessaging.onMessage.listen((message) {
+    FirebaseMessaging.onMessage.listen((message) async {
       final notification = message.notification;
       final type = message.data['type']?.toString();
       final orderId = _orderIdFromData(message.data);
@@ -381,6 +420,15 @@ class FcmService {
         type == 'new_order_available' ||
         (type == null && (notification?.title?.toLowerCase().contains('new order') ?? false))
       );
+
+      // An order for another outlet of this owner: never pop the accept/reject
+      // dialog for it (this session belongs to a different outlet, so answering
+      // it from here fails and the dialog hangs). The native alert already shows
+      // it, and tapping that switches to the right outlet.
+      if (isNewOrder && await _isOtherOutletOrder(_ref, message.data['restaurantId']?.toString())) {
+        unawaited(_ref.read(liveOrdersControllerProvider.notifier).refresh());
+        return;
+      }
 
       if (isDismiss && orderId != null) {
         NewOrderActionChannel.stopSound(orderId);
@@ -557,3 +605,15 @@ class FcmService {
 final fcmServiceProvider = Provider<FcmService>((ref) {
   return FcmService(ref.watch(dioProvider), ref);
 });
+
+/// Whether [restaurantId] is another outlet of the owner, i.e. not the one this
+/// session is signed in as. Unknown on either side counts as "not another outlet".
+Future<bool> _isOtherOutletOrder(Ref ref, String? restaurantId) async {
+  if (restaurantId == null || restaurantId.isEmpty) return false;
+  try {
+    final active = await ref.read(tokenStorageProvider).restaurantId;
+    return active != null && active.isNotEmpty && active != restaurantId;
+  } catch (_) {
+    return false;
+  }
+}

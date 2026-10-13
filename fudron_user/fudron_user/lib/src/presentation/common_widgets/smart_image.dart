@@ -68,7 +68,7 @@ class SmartImage extends StatelessWidget {
   ///
   /// Flat grey here was the single biggest reason the app read as empty: every
   /// slow or broken image — hero banners included — left a large neutral void.
-  /// A magenta→teal wash means a missing photo still looks like Fudron.
+  /// A magenta→teal wash means a missing photo still looks like Cravioo.
   static LinearGradient _wash(bool isDark, {bool strong = false}) {
     return LinearGradient(
       begin: Alignment.topLeft,

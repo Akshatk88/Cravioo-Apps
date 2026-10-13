@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../di/support_contact_provider.dart';
 import '../../../core/utils/haptics.dart';
 import '../../branding/app_colors.dart';
 import '../../common_widgets/app_snackbar.dart';
@@ -27,7 +29,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
     final Uri launchUri = Uri(
       scheme: 'mailto',
       path: emailAddress,
-      queryParameters: {'subject': 'Privacy Policy Inquiry - Fudron App'},
+      queryParameters: {'subject': 'Privacy Policy Inquiry - Cravioo App'},
     );
     try {
       if (await canLaunchUrl(launchUri)) {
@@ -179,7 +181,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
               Column(
                 children: [
                   Text(
-                    '© 2026 Fudron. All rights reserved.',
+                    '© 2026 Cravioo. All rights reserved.',
                     style: TextStyle(
                       fontSize: 11.5.sp,
                       color: secondaryTextColor,
@@ -289,7 +291,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
                 ),
                 SizedBox(height: 10.h),
                 Text(
-                  'At Fudron, we are committed to protecting your personal information and ensuring a safe and secure experience.',
+                  'At Cravioo, we are committed to protecting your personal information and ensuring a safe and secure experience.',
                   style: TextStyle(
                     fontSize: 11.5.sp,
                     color: secondaryTextColor,
@@ -344,7 +346,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
         'icon': Icons.lock_outline_rounded,
         'title': '4. Data Security',
         'subtitle': 'We use industry-standard security measures to protect your information from unauthorized access, loss, or misuse.',
-        'fullText': 'All communications with Fudron servers are encrypted via SSL/TLS. Account authentication uses secure OTP tokens, preventing password leakage.',
+        'fullText': 'All communications with Cravioo servers are encrypted via SSL/TLS. Account authentication uses secure OTP tokens, preventing password leakage.',
       },
       {
         'icon': Icons.cookie_outlined,
@@ -362,13 +364,13 @@ class PrivacyPolicyScreen extends StatelessWidget {
         'icon': Icons.info_outline_rounded,
         'title': '7. Changes to This Policy',
         'subtitle': 'We may update this Privacy Policy from time to time. Changes will be posted on this page with the updated date.',
-        'fullText': 'Any policy modifications will be published directly within the app. Continued use of Fudron indicates acceptance of the updated terms.',
+        'fullText': 'Any policy modifications will be published directly within the app. Continued use of Cravioo indicates acceptance of the updated terms.',
       },
       {
         'icon': Icons.mail_outline_rounded,
         'title': '8. Contact Us',
         'subtitle': 'If you have any questions or concerns, please contact us.',
-        'fullText': 'Our dedicated data protection team is available 24/7 to resolve any privacy queries at support@suvio.com or via phone support.',
+        'fullText': 'Our dedicated data protection team is available 24/7 to resolve any privacy queries through the contact options in Help & Support.',
       },
     ];
 
@@ -478,6 +480,9 @@ class PrivacyPolicyScreen extends StatelessWidget {
   /// 3. Contact Info Card: Phone & Email with dynamic actions
   Widget _buildContactCard(
       BuildContext context, bool isDark, Color textColor, Color secondaryTextColor) {
+    // Phone and email come from the admin's Business settings, not code.
+    return Consumer(builder: (context, ref, _) {
+    final contact = ref.watch(supportContactProvider).value ?? SupportContact.empty;
     return Container(
       padding: EdgeInsets.symmetric(vertical: 12.h, horizontal: 8.w),
       decoration: BoxDecoration(
@@ -493,7 +498,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
           // Left Column: Phone
           Expanded(
             child: InkWell(
-              onTap: () => _makePhoneCall(context, '6375095971'),
+              onTap: contact.hasPhone ? () => _makePhoneCall(context, contact.phone.replaceAll(' ', '')) : null,
               borderRadius: BorderRadius.circular(12.r),
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 4.h),
@@ -526,7 +531,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
                           ),
                           SizedBox(height: 2.h),
                           Text(
-                            '6375095971',
+                            contact.hasPhone ? contact.phone : 'Not available',
                             style: TextStyle(
                               fontSize: 10.5.sp,
                               color: secondaryTextColor,
@@ -552,7 +557,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
           // Right Column: Email
           Expanded(
             child: InkWell(
-              onTap: () => _sendEmail(context, 'appzeto@gmail.com'),
+              onTap: contact.hasEmail ? () => _sendEmail(context, contact.email) : null,
               borderRadius: BorderRadius.circular(12.r),
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 4.h),
@@ -585,7 +590,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
                           ),
                           SizedBox(height: 2.h),
                           Text(
-                            'appzeto@gmail.com',
+                            contact.hasEmail ? contact.email : 'Not available',
                             style: TextStyle(
                               fontSize: 10.sp,
                               color: secondaryTextColor,
@@ -605,5 +610,6 @@ class PrivacyPolicyScreen extends StatelessWidget {
         ],
       ),
     );
+    });
   }
 }

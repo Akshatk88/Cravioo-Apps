@@ -12,24 +12,38 @@ class ChatRepository {
 
   final Dio _dio;
 
+  /// Opens (or creates) the order's conversation with the customer.
+  /// Backend: GET /food/chat/conversations/open?orderId= → {conversationId}.
+  Future<Result<String, AppError>> openConversation(String orderId) async {
+    try {
+      final res = await _dio.get(
+        ApiEndpoints.chatConversationOpen,
+        queryParameters: {'orderId': orderId},
+      );
+      final body = res.data['data'] as Map<String, dynamic>? ?? const {};
+      final id = body['conversationId']?.toString() ?? '';
+      if (id.isEmpty) return Result.failure(NetworkError('Could not open chat'));
+      return Result.success(id);
+    } on DioException catch (e) {
+      return Result.failure(_mapError(e));
+    }
+  }
+
+  /// Backend: POST /food/chat/messages {conversationId, text}; answers the
+  /// message itself as `data`.
   Future<Result<ChatMessage, AppError>> sendMessage({
-    required String peerRole,
-    String? peerId,
-    String? orderId,
+    required String conversationId,
     required String text,
   }) async {
     try {
       final res = await _dio.post(
         ApiEndpoints.chatMessages,
-        data: {
-          'peerRole': peerRole,
-          'peerId': ?peerId,
-          'orderId': ?orderId,
-          'text': text,
-        },
+        data: {'conversationId': conversationId, 'text': text},
       );
       final body = res.data['data'] as Map<String, dynamic>? ?? res.data as Map<String, dynamic>;
-      final message = body['message'] as Map<String, dynamic>;
+      final message = (body['message'] is Map<String, dynamic>)
+          ? body['message'] as Map<String, dynamic>
+          : body;
       return Result.success(ChatMessage.fromJson(message));
     } on DioException catch (e) {
       return Result.failure(_mapError(e));

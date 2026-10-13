@@ -329,7 +329,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                       ),
                       decoration: InputDecoration(
                         hintText: state.mode == SearchMode.home
-                            ? 'Search "Burger", "Pizza", "Fudron"...'
+                            ? 'Search "Burger", "Pizza", "Cravioo"...'
                             : 'Search 99 Store deals, dishes...',
                         hintStyle: TextStyle(
                           fontSize: 14.sp,

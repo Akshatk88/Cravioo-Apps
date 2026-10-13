@@ -24,6 +24,7 @@ class OrderRepository {
     int page = 1,
     int limit = 20,
     String? search,
+    bool allOutlets = false,
   }) async {
     final response = await _dio.get(
       '/food/restaurant/orders',
@@ -31,6 +32,9 @@ class OrderRepository {
         'page': page,
         'limit': limit,
         if (search != null && search.isNotEmpty) 'search': search,
+        // Server widens the list to every outlet of the owner; ignored when
+        // the session has no owner account.
+        if (allOutlets) 'scope': 'all',
       },
     );
     final data = Map<String, dynamic>.from(response.data as Map);
@@ -52,8 +56,11 @@ class OrderRepository {
   /// Live/current orders view — a generous single page covering everything
   /// the Orders screen buckets into its 7 tabs (client-side, see
   /// [OrderModel.restaurantBucket]).
-  Future<List<OrderModel>> listCurrent({int limit = 100}) async {
-    final page = await list(page: 1, limit: limit);
+  Future<List<OrderModel>> listCurrent({
+    int limit = 100,
+    bool allOutlets = false,
+  }) async {
+    final page = await list(page: 1, limit: limit, allOutlets: allOutlets);
     return page.orders;
   }
 

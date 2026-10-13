@@ -6,6 +6,7 @@ import 'package:food_user_application/config/theme/app_colors.dart';
 import 'package:food_user_application/core/providers/core_providers.dart';
 import 'package:food_user_application/core/widgets/battery_optimization_dialog.dart';
 import 'package:food_user_application/core/widgets/exit_app_dialog.dart';
+import 'package:food_user_application/core/services/order_overlay_service.dart';
 
 class MainLayoutScreen extends ConsumerStatefulWidget {
   final StatefulNavigationShell navigationShell;
@@ -20,7 +21,10 @@ class _MainLayoutScreenState extends ConsumerState<MainLayoutScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowBatteryPrompt());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _maybeShowBatteryPrompt();
+      await _maybeAskOverlayPermission();
+    });
   }
 
   // One-time, best-effort — shown once per device regardless of the choice
@@ -34,6 +38,39 @@ class _MainLayoutScreenState extends ConsumerState<MainLayoutScreen> {
       context: context,
       builder: (context) => const BatteryOptimizationDialog(),
     );
+  }
+
+  // The new-order alert can float over other apps (and the lock-free home
+  // screen) only with the "display over other apps" permission, which Android
+  // makes the user grant in Settings. Asked once; declining is respected.
+  Future<void> _maybeAskOverlayPermission() async {
+    if (await OrderOverlayService.hasPermission()) return;
+    if (await OrderOverlayService.hasAskedPermission()) return;
+    await OrderOverlayService.markAskedPermission();
+    if (!mounted) return;
+    final allow = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Show new orders on screen'),
+        content: const Text(
+          'Allow Cravioo Restaurant to display over other apps, so a new order '
+          'pops up on your screen with Accept and Reject — even when the app '
+          'is closed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Not now'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(minimumSize: const Size(0, 44)),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Allow'),
+          ),
+        ],
+      ),
+    );
+    if (allow == true) await OrderOverlayService.requestPermission();
   }
 
   void _onItemTapped(int index) {

@@ -9,10 +9,10 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
-  String get appName => 'Appzeto Delivery';
+  String get appName => 'Cravioo Delivery';
 
   @override
-  String get onboardingTitle1 => 'Welcome to Fodron Delivery';
+  String get onboardingTitle1 => 'Welcome to Cravioo Delivery';
 
   @override
   String get onboardingTitle2 => 'Fast & Reliable Delivery';

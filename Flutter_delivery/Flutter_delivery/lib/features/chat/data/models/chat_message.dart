@@ -29,7 +29,9 @@ class ChatMessage {
     return ChatMessage(
       id: (json['id'] ?? json['_id'] ?? '').toString(),
       conversationId: (json['conversationId'] ?? '').toString(),
-      orderId: json['orderId']?.toString(),
+      // Socket/push payloads carry the Mongo id as orderMongoId and the
+      // display number as orderId; screens match on the Mongo id.
+      orderId: (json['orderMongoId'] ?? json['orderId'])?.toString(),
       senderRole: json['senderRole'] as String? ?? '',
       senderId: (json['senderId'] ?? '').toString(),
       recipientRole: json['recipientRole'] as String? ?? '',

@@ -43,22 +43,27 @@ class ChatRemoteDataSource {
     return (messages: messages, totalPages: (pagination['totalPages'] as num?)?.toInt() ?? 1);
   }
 
-  /// `peerRole: ADMIN` omits [peerId]/[orderId] (support chat); any other
-  /// peer role requires both.
+  /// `GET /food/chat/conversations/open?orderId=` — opens (or creates) the
+  /// order's conversation and returns its id.
+  Future<String> openConversation(String orderId) async {
+    final data = await _client.get<Map<String, dynamic>>(
+      ApiPaths.chatConversationOpen,
+      query: {'orderId': orderId},
+    );
+    final id = data['conversationId']?.toString() ?? '';
+    if (id.isEmpty) throw StateError('No conversation id');
+    return id;
+  }
+
+  /// `POST /food/chat/messages {conversationId, text}`. The backend rejects a
+  /// send without the conversation id ("conversationId is required").
   Future<ChatMessage> sendMessage({
-    required String peerRole,
-    String? peerId,
-    String? orderId,
+    required String conversationId,
     required String text,
   }) async {
     final data = await _client.post<Map<String, dynamic>>(
       ApiPaths.chatMessages,
-      body: {
-        'peerRole': peerRole,
-        'peerId': ?peerId,
-        'orderId': ?orderId,
-        'text': text,
-      },
+      body: {'conversationId': conversationId, 'text': text},
     );
     final message = data['message'];
     return ChatMessage.fromApi(message is Map ? message.cast<String, dynamic>() : data);

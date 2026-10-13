@@ -72,8 +72,8 @@ class _ReferralTicketResultScreenState
     final msg = details?.shareText.isNotEmpty == true
         ? details!.shareText
         : (details?.referralLink.isNotEmpty == true
-            ? 'Join me on Fudron and get $rewardStr off on your first order! ${details!.referralLink}'
-            : 'Join Fudron as a user. Use my referral code: $code');
+            ? 'Join me on Cravioo and get $rewardStr off on your first order! ${details!.referralLink}'
+            : 'Join Cravioo as a user. Use my referral code: $code');
 
     Haptics.medium();
     SharePlus.instance.share(ShareParams(text: msg));

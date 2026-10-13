@@ -31,12 +31,13 @@ object NewOrderNotifier {
      * including across app updates. Only a new id takes effect. Reinstalling to test
      * hides this, which is how it survives review.
      */
-    private const val CHANNEL_ID = "new_order_native_v2"
+    private const val CHANNEL_ID = "new_order_native_v3"
     private const val CHANNEL_NAME = "New order alerts"
 
     const val ACTION_ACCEPT = "com.cravioo.restaurant.NEW_ORDER_ACCEPT"
     const val ACTION_REJECT = "com.cravioo.restaurant.NEW_ORDER_REJECT"
     const val EXTRA_ORDER_ID = "orderId"
+    const val EXTRA_RESTAURANT_ID = "restaurantId"
 
     /** Keyed on the order so a withdrawal can cancel exactly this alert. */
     fun notificationId(orderId: String?): Int =
@@ -49,18 +50,30 @@ object NewOrderNotifier {
         createChannel(context, manager)
         wakeScreen(context)
 
-        val soundUri = Uri.parse("android.resource://${context.packageName}/raw/tujh_bin")
         val ringMillis = expiryMillis(data)
         val title = data["title"]?.takeIf { it.isNotBlank() } ?: "New order received"
-        val body = data["body"]?.takeIf { it.isNotBlank() } ?: buildBody(data)
+        val rawBody = data["body"]?.takeIf { it.isNotBlank() } ?: buildBody(data)
 
-        val notification: Notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        // An order for ANOTHER outlet of the same owner. Accept/Reject cannot be
+        // answered from here (the session belongs to a different outlet), so the
+        // notification names the outlet and just opens it: tapping switches the app
+        // to that outlet and shows the order there.
+        val restaurantId = data["restaurantId"]?.takeIf { it.isNotBlank() }
+        val outletName = data["restaurantName"]?.takeIf { it.isNotBlank() }
+        val otherOutlet = isOtherOutlet(context, restaurantId)
+        val body = if (otherOutlet && outletName != null && !rawBody.contains(outletName)) {
+            "$outletName · $rawBody"
+        } else {
+            rawBody
+        }
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setSound(soundUri)
+            .setSound(null) // the looping NewOrderRingtone is the ONLY audio: a channel sound on top of it rang twice
             // CATEGORY_CALL earns call-style ranking and gets through most Do Not
             // Disturb configurations. Not cosmetic: without it the full-screen intent
             // is treated as an ordinary notification.
@@ -71,22 +84,26 @@ object NewOrderNotifier {
             // Neither swipeable nor auto-dismissed: an order alert must be answered,
             // not brushed away. It is cancelled explicitly on Accept, Reject, the
             // order being taken elsewhere, or expiry.
-            .setOngoing(true)
-            .setAutoCancel(false)
-            .setFullScreenIntent(openAppIntent(context, orderId), true)
-            .setContentIntent(openAppIntent(context, orderId))
-            .addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                "Reject",
-                actionIntent(context, ACTION_REJECT, orderId),
-            )
-            .addAction(
-                android.R.drawable.ic_menu_send,
-                "Accept",
-                actionIntent(context, ACTION_ACCEPT, orderId),
-            )
+            .setOngoing(!otherOutlet)
+            .setAutoCancel(otherOutlet)
+            .setFullScreenIntent(openAppIntent(context, orderId, restaurantId), true)
+            .setContentIntent(openAppIntent(context, orderId, restaurantId))
             .setTimeoutAfter(ringMillis + 10_000)
-            .build()
+
+        if (!otherOutlet) {
+            builder
+                .addAction(
+                    android.R.drawable.ic_menu_close_clear_cancel,
+                    "Reject",
+                    actionIntent(context, ACTION_REJECT, orderId),
+                )
+                .addAction(
+                    android.R.drawable.ic_menu_send,
+                    "Accept",
+                    actionIntent(context, ACTION_ACCEPT, orderId),
+                )
+        }
+        val notification: Notification = builder.build()
 
         try {
             manager.notify(notificationId(orderId), notification)
@@ -99,10 +116,28 @@ object NewOrderNotifier {
         NewOrderRingtone.start(context, orderId, ringMillis)
     }
 
+    /**
+     * Whether [restaurantId] is a different outlet from the one the app is signed
+     * in as. The app mirrors its active outlet id into SharedPreferences
+     * ("restaurant_id", which Flutter's plugin stores as "flutter.restaurant_id")
+     * precisely so this can be answered with no engine running. Unknown on either
+     * side means "not another outlet": the normal alert is the safe default.
+     */
+    internal fun isOtherOutlet(context: Context, restaurantId: String?): Boolean {
+        if (restaurantId.isNullOrBlank()) return false
+        return try {
+            val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            val active = prefs.getString("flutter.restaurant_id", null)
+            !active.isNullOrBlank() && active != restaurantId
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     /** Take the alert down and stop the ring — order taken elsewhere, or cancelled. */
     fun dismiss(context: Context, orderId: String?) {
+        NewOrderOverlay.dismiss(orderId)
         NewOrderRingtone.stop(orderId)
-        NewOrderOverlay.dismissFor(orderId)
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         try {
             manager.cancel(notificationId(orderId))
@@ -111,6 +146,7 @@ object NewOrderNotifier {
 
     /** Shows an immediate confirmation notification when order is accepted or rejected from notification */
     fun showActionFeedback(context: Context, orderId: String, accepted: Boolean) {
+        NewOrderOverlay.dismiss(orderId)
         NewOrderRingtone.stop(orderId)
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val feedbackChannelId = "order_feedback_channel"
@@ -193,11 +229,16 @@ object NewOrderNotifier {
         )
     }
 
-    private fun openAppIntent(context: Context, orderId: String): PendingIntent {
+    private fun openAppIntent(
+        context: Context,
+        orderId: String,
+        restaurantId: String? = null,
+    ): PendingIntent {
         val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
             ?.apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 putExtra(EXTRA_ORDER_ID, orderId)
+                if (!restaurantId.isNullOrBlank()) putExtra(EXTRA_RESTAURANT_ID, restaurantId)
             }
             ?: Intent()
         return PendingIntent.getActivity(
@@ -208,15 +249,54 @@ object NewOrderNotifier {
         )
     }
 
+    /**
+     * The channel id the BACKEND names on restaurant pushes
+     * (`android.notification.channel_id` in firebase.service.js).
+     *
+     * When such a push arrives with the app closed, Android draws it itself - no
+     * Kotlin or Dart runs - into whatever channel the id names. If the app never
+     * created that channel, Android silently drops the message into a default
+     * low-priority one: no sound, no heads-up, easy to miss entirely. Creating it
+     * here, loud, means that path still rings and pops up. It is the fallback; the
+     * data-only push drives the full alert (buttons, overlay) through
+     * [NewOrderMessagingService].
+     */
+    const val BACKEND_ORDERS_CHANNEL_ID = "orders_channel"
+
+    /** Creates every channel an order push can land in. Call once at app start. */
+    fun ensureChannels(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        try {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            createChannel(context, manager)
+            if (manager.getNotificationChannel(BACKEND_ORDERS_CHANNEL_ID) != null) return
+
+            // The backend names this channel on EVERY restaurant push that carries a
+            // notification block (order updates, admin messages, tests...), not only
+            // new orders. So it uses the phone's normal notification sound: giving it
+            // the order ringtone made every notification ring. The ringtone belongs to
+            // the native new-order alert alone (NewOrderRingtone).
+            val channel = NotificationChannel(
+                BACKEND_ORDERS_CHANNEL_ID,
+                "Order notifications",
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = "Order updates and messages."
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 600, 500)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                setShowBadge(true)
+            }
+            manager.createNotificationChannel(channel)
+        } catch (t: Throwable) {
+            android.util.Log.w("NewOrderNotifier", "ensureChannels failed: $t")
+        }
+    }
+
     private fun createChannel(context: Context, manager: NotificationManager) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         if (manager.getNotificationChannel(CHANNEL_ID) != null) return
 
-        val soundUri = Uri.parse("android.resource://${context.packageName}/raw/tujh_bin")
-        val audioAttributes = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .build()
 
         val channel = NotificationChannel(
             CHANNEL_ID,
@@ -224,9 +304,10 @@ object NewOrderNotifier {
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = "Alerts for new orders. Requires an immediate accept or reject."
-            setSound(soundUri, audioAttributes)
-            enableVibration(true)
-            vibrationPattern = longArrayOf(0, 600, 500)
+            // Silent on purpose. NewOrderRingtone loops the ring (and vibrates) itself;
+            // a channel sound plays once on top of it, which is the "rings twice" bug.
+            setSound(null, null)
+            enableVibration(false)
             setBypassDnd(true)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             setShowBadge(true)
@@ -259,7 +340,7 @@ object NewOrderNotifier {
         }
     }
 
-    private fun expiryMillis(data: Map<String, String>): Long {
+    internal fun expiryMillis(data: Map<String, String>): Long {
         val seconds = (data["expiresInSeconds"] ?: data["acceptTimeoutSeconds"])
             ?.toLongOrNull()
             ?.coerceIn(15, 300)

@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:food_user_application/config/theme/app_theme.dart';
+import 'package:go_router/go_router.dart';
+import 'package:food_user_application/core/providers/core_providers.dart';
 import 'package:food_user_application/core/services/fcm_service.dart';
 import 'package:food_user_application/core/services/new_order_action_channel.dart';
 import 'package:food_user_application/core/services/order_resolution_tracker.dart';
@@ -43,12 +45,17 @@ class _FoodUserApplicationState extends ConsumerState<FoodUserApplication>
     // Attached before anything else can produce a decision.
     NewOrderActionChannel.initialize();
     _orderActionSub = NewOrderActionChannel.onAction.listen(_handleOrderAction);
-    _incomingOrderSub = NewOrderActionChannel.onIncomingOrder.listen((orderId) {
-      if (!OrderResolutionTracker.isResolved(orderId)) {
-        NewOrderActionChannel.startSound(orderId);
-        _showIncomingDialogWithRetry(orderId);
-      }
-    });
+    // Two orders at once: answering one dialog brings up the next unanswered one.
+    incomingOrderDialogClosedHook = () {
+      Future.delayed(const Duration(milliseconds: 600), () async {
+        if (!mounted) return;
+        await ref.read(liveOrdersControllerProvider.notifier).refresh();
+        if (mounted) _checkLiveOrdersForPendingAlert(force: true);
+      });
+    };
+    _incomingOrderSub = NewOrderActionChannel.onIncomingOrder.listen(
+      (orderId) => unawaited(_openIncomingOrder(orderId)),
+    );
 
     // Cold start checks
     unawaited(_consumePendingIncomingOrder());
@@ -56,7 +63,6 @@ class _FoodUserApplicationState extends ConsumerState<FoodUserApplication>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(fcmServiceProvider).initForegroundHandling();
-      unawaited(ref.read(fcmServiceProvider).saveTokenToServer());
       _wireGlobalOrderAlerts();
     });
   }
@@ -64,10 +70,61 @@ class _FoodUserApplicationState extends ConsumerState<FoodUserApplication>
   Future<void> _consumePendingIncomingOrder() async {
     final orderId = await NewOrderActionChannel.consumePendingIncomingOrderId();
     if (orderId == null || orderId.isEmpty) return;
-    if (!OrderResolutionTracker.isResolved(orderId)) {
-      NewOrderActionChannel.startSound(orderId);
-      _showIncomingDialogWithRetry(orderId);
+    await _openIncomingOrder(orderId);
+  }
+
+  /// The outlet this session is signed in as. The live auth state is not yet set
+  /// on a cold start from a notification, so fall back to what was stored.
+  Future<String?> _activeOutletId() async {
+    final auth = ref.read(authControllerProvider);
+    if (auth is AuthAuthenticated) return auth.restaurant.id;
+    try {
+      return await ref.read(tokenStorageProvider).restaurantId;
+    } catch (_) {
+      return null;
     }
+  }
+
+  /// Sync version for places that cannot await; null when not signed in yet.
+  String? get _activeOutletIdNow {
+    final auth = ref.read(authControllerProvider);
+    return auth is AuthAuthenticated ? auth.restaurant.id : null;
+  }
+
+  bool _isOtherOutlet(String? restaurantId, String? active) =>
+      restaurantId != null &&
+      restaurantId.isNotEmpty &&
+      active != null &&
+      active.isNotEmpty &&
+      restaurantId != active;
+
+  /// A new-order alert was tapped (or the app was opened on one).
+  ///
+  /// If the order belongs to another outlet of this owner, switch the app to that
+  /// outlet first and land on its Orders section, then show the order there — the
+  /// accept/reject calls are made as that outlet, so they work and nothing hangs.
+  Future<void> _openIncomingOrder(String orderId) async {
+    if (OrderResolutionTracker.isResolved(orderId)) return;
+
+    final outletId = await NewOrderActionChannel.consumePendingIncomingOutlet();
+    if (_isOtherOutlet(outletId, await _activeOutletId())) {
+      try {
+        await ref.read(authControllerProvider.notifier).switchOutlet(outletId!);
+      } catch (_) {
+        final ctx = rootNavigatorKey.currentContext;
+        if (ctx != null && ctx.mounted) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            const SnackBar(content: Text('Could not open that outlet. Please try again.')),
+          );
+        }
+        return;
+      }
+      final ctx = rootNavigatorKey.currentContext;
+      if (ctx != null && ctx.mounted) GoRouter.of(ctx).go('/orders');
+    }
+
+    NewOrderActionChannel.startSound(orderId);
+    _showIncomingDialogWithRetry(orderId);
   }
 
   void _showIncomingDialogWithRetry(String orderId, [int attempt = 0]) {
@@ -94,6 +151,18 @@ class _FoodUserApplicationState extends ConsumerState<FoodUserApplication>
       try {
         String? orderId;
         String? displayId;
+        // Another outlet's order: no dialog here (it could not be answered as this
+        // outlet). The alert notification covers it; tapping switches outlets.
+        if (data is Map &&
+            _isOtherOutlet(
+              (data['restaurantId'] is Map
+                      ? data['restaurantId']['_id']
+                      : data['restaurantId'])
+                  ?.toString(),
+              _activeOutletIdNow,
+            )) {
+          return;
+        }
         if (data is Map) {
           orderId = (data['orderMongoId'] ??
                   data['_id'] ??
@@ -183,7 +252,9 @@ class _FoodUserApplicationState extends ConsumerState<FoodUserApplication>
     super.dispose();
   }
 
-  void _checkLiveOrdersForPendingAlert() {
+  /// [force]: right after a dialog closed - an order that came in while it was
+  /// open was already "alerted" but its dialog could not open then.
+  void _checkLiveOrdersForPendingAlert({bool force = false}) {
     final orders = ref.read(liveOrdersControllerProvider).value;
     if (orders == null || orders.isEmpty) return;
     final unaccepted = orders.where((o) =>
@@ -195,7 +266,7 @@ class _FoodUserApplicationState extends ConsumerState<FoodUserApplication>
             o.restaurantBucket == 'new'));
     if (unaccepted.isNotEmpty) {
       final first = unaccepted.first;
-      if (!OrderResolutionTracker.hasAlertedRecently(first.id)) {
+      if (force || !OrderResolutionTracker.hasAlertedRecently(first.id)) {
         OrderResolutionTracker.markAlerted(first.id);
         NewOrderActionChannel.startSound(first.id);
         _showIncomingDialogWithRetry(first.id);
@@ -270,7 +341,9 @@ class _FoodUserApplicationState extends ConsumerState<FoodUserApplication>
     ref.listen<AsyncValue<List<OrderModel>>>(liveOrdersControllerProvider, (prev, next) {
       if (next.hasValue) {
         final orders = next.value!;
+        final active = _activeOutletIdNow;
         final unaccepted = orders.where((o) =>
+            !_isOtherOutlet(o.restaurantId, active) &&
             !o.isCancelled &&
             !OrderResolutionTracker.isResolved(o.id) &&
             (o.orderStatus == 'created' ||
@@ -289,6 +362,8 @@ class _FoodUserApplicationState extends ConsumerState<FoodUserApplication>
     final currentThemeMode = ref.watch(themeModeProvider);
 
     return MaterialApp.router(
+      // Name shown in the recent-apps switcher.
+      title: 'Cravioo Restaurant',
       debugShowCheckedModeBanner: false,
       theme: lightTheme,
       darkTheme: darkTheme,

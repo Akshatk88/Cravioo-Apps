@@ -137,6 +137,7 @@ class OrderModel {
     required this.acceptanceDeadlineAt,
     required this.createdAt,
     this.statusTimes = const {},
+    this.restaurantId = '',
   });
 
   factory OrderModel.fromJson(Map<String, dynamic> rawJson) {
@@ -202,10 +203,20 @@ class OrderModel {
           DateTime.tryParse((json['createdAt'] ?? '').toString()) ??
           DateTime.now(),
       statusTimes: _parseStatusTimes(json['statusHistory']),
+      restaurantId: _restaurantIdOf(json['restaurantId']),
     );
   }
 
+  /// `restaurantId` arrives as a bare id on list responses and as a populated
+  /// object on detail responses. Used to label orders by outlet in the
+  /// "All outlets" view.
+  static String _restaurantIdOf(dynamic raw) {
+    if (raw is Map) return (raw['_id'] ?? raw['id'] ?? '').toString();
+    return (raw ?? '').toString();
+  }
+
   final String id;
+  final String restaurantId;
   final String displayId;
   final String customerName;
   final String customerPhone;
@@ -259,9 +270,11 @@ class OrderModel {
     DateTime? acceptanceDeadlineAt,
     DateTime? createdAt,
     Map<String, DateTime>? statusTimes,
+    String? restaurantId,
   }) {
     return OrderModel(
       id: id ?? this.id,
+      restaurantId: restaurantId ?? this.restaurantId,
       displayId: displayId ?? this.displayId,
       customerName: customerName ?? this.customerName,
       customerPhone: customerPhone ?? this.customerPhone,

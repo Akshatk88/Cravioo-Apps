@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'location_disclosure.dart';
+
 /// Streams GPS positions while the partner is online. On Android this runs
 /// as a foreground service with a persistent notification (via geolocator's
 /// `foregroundNotificationConfig`) so pings keep flowing when the app is
@@ -17,11 +19,53 @@ class LocationService {
   Stream<Position> get positionStream => _positionController.stream;
   bool get isTracking => _positionSubscription != null;
 
-  /// [requestExtras] also asks for background location and notifications. Only
-  /// the first-launch flow passes it: going online must not re-prompt for things
-  /// the rider already answered (background location re-opens Settings on every
-  /// call while it is denied).
-  Future<bool> ensurePermissions({bool requestExtras = false}) async {
+  /// Asked as soon as the app starts (from the splash), so the rider grants
+  /// location once, up front, instead of being stopped by permission prompts at
+  /// the moment they tap "Go online". Never opens Settings from here and never
+  /// throws; [ensurePermissions] still guards going online.
+  Future<void> requestAtLaunch() async {
+    try {
+      var permission = await Geolocator.checkPermission();
+      final needsPrompt = permission == LocationPermission.denied ||
+          (Platform.isAndroid &&
+              permission == LocationPermission.whileInUse &&
+              !(await Permission.locationAlways.status).isGranted);
+      // Play policy: the in-app disclosure must come before any system
+      // location prompt. Declined -> nothing is requested.
+      if (needsPrompt) {
+        await Future<void>.delayed(const Duration(milliseconds: 800));
+        if (!await LocationDisclosure.ensure()) return;
+      }
+      if (permission == LocationPermission.denied) {
+        // Give the notification-permission prompt FcmService raises at start
+        // a moment to settle: two runtime-permission requests at once make the
+        // second one fail or never answer.
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        try {
+          permission = await Geolocator.requestPermission()
+              .timeout(const Duration(seconds: 60));
+        } catch (_) {
+          // "Request already running" or no answer: try once more shortly.
+          await Future<void>.delayed(const Duration(seconds: 3));
+          permission = await Geolocator.requestPermission()
+              .timeout(const Duration(seconds: 60));
+        }
+      }
+      // Background location can only be asked for once foreground location is
+      // granted; deliveries keep tracking while the app is in the background.
+      if (Platform.isAndroid && permission == LocationPermission.whileInUse) {
+        final background = await Permission.locationAlways.status;
+        if (!background.isGranted && !background.isPermanentlyDenied) {
+          await Permission.locationAlways.request()
+              .timeout(const Duration(seconds: 60));
+        }
+      }
+    } catch (_) {
+      // A failed prompt must never block app start.
+    }
+  }
+
+  Future<bool> ensurePermissions() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       await Geolocator.openLocationSettings();
@@ -35,7 +79,15 @@ class LocationService {
       return false;
     }
 
+    // Play policy: show the location disclosure before any system prompt.
+    final backgroundGranted =
+        !Platform.isAndroid || (await Permission.locationAlways.status).isGranted;
+    final disclosureOk = (permission != LocationPermission.denied && backgroundGranted)
+        ? true
+        : await LocationDisclosure.ensure();
+
     if (permission == LocationPermission.denied) {
+      if (!disclosureOk) return false;
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.deniedForever) {
         await Geolocator.openAppSettings();
@@ -48,9 +100,9 @@ class LocationService {
       return false;
     }
 
-    if (Platform.isAndroid && requestExtras) {
+    if (Platform.isAndroid) {
       final backgroundStatus = await Permission.locationAlways.status;
-      if (!backgroundStatus.isGranted) {
+      if (!backgroundStatus.isGranted && disclosureOk) {
         await Permission.locationAlways.request();
       }
       final notificationStatus = await Permission.notification.status;

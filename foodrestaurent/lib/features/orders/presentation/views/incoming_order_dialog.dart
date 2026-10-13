@@ -20,6 +20,11 @@ bool _incomingOrderDialogShowing = false;
 /// Shown immediately when a `new_order` push/socket event arrives while the
 /// app is in the foreground, so the restaurant can accept/reject right away
 /// instead of having to notice and tap a system notification first.
+/// Called after an incoming-order dialog closes, so the next unanswered order
+/// (one that arrived while this dialog was up and could not open its own) is
+/// shown straight away. Set by the app shell.
+void Function()? incomingOrderDialogClosedHook;
+
 Future<void> showIncomingOrderDialog(
   BuildContext context, {
   required String orderId,
@@ -38,6 +43,7 @@ Future<void> showIncomingOrderDialog(
   } finally {
     _incomingOrderDialogShowing = false;
     NewOrderActionChannel.stopSound(orderId);
+    incomingOrderDialogClosedHook?.call();
   }
 }
 
@@ -137,6 +143,7 @@ class _IncomingOrderDialogState extends ConsumerState<IncomingOrderDialog> {
     await cancelFcmTrayCopy(widget.orderId);
 
     if (orderStatus == 'cancelled_by_restaurant') {
+      if (!mounted) return;
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -417,6 +424,7 @@ class _IncomingOrderDialogState extends ConsumerState<IncomingOrderDialog> {
 
   Widget _buildOrder(BuildContext context, OrderModel order) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
@@ -549,7 +557,7 @@ class _IncomingOrderDialogState extends ConsumerState<IncomingOrderDialog> {
             ],
           ),
         ),
-        Expanded(
+        Flexible(
           child: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

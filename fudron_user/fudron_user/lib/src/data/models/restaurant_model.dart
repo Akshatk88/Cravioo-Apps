@@ -230,10 +230,15 @@ class RestaurantModel {
         (json['minOrder'] as num?)?.toDouble() ??
         0.0;
 
-    final deliveryTimeStr = (json['estimatedDeliveryTime'] ??
+    final rawDeliveryTime = (json['estimatedDeliveryTime'] ??
             json['deliveryTime'] ??
             (json['estimatedDeliveryTimeMinutes'] != null ? '${json['estimatedDeliveryTimeMinutes']} mins' : ''))
-        .toString();
+        .toString()
+        .trim();
+    // The backend sends estimatedDeliveryTime as a bare number ("20"), which read
+    // as a stray "20" under the restaurant name. Give a bare number its unit.
+    final deliveryTimeStr =
+        RegExp(r'^\d+$').hasMatch(rawDeliveryTime) ? '$rawDeliveryTime mins' : rawDeliveryTime;
 
     if (offers.isEmpty) {
       offers.add('Flat ₹100 OFF above ₹149');

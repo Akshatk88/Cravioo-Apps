@@ -331,7 +331,27 @@ class DeliveryOrder {
           if (parsed.isNotEmpty) return parsed;
         } catch (_) {}
       }
-      final count = int.tryParse(data['itemCount']?.toString() ?? data['totalItems']?.toString() ?? '0') ?? 0;
+      // The dispatch push carries the items as one line, "1x Burger, 2x Fries"
+      // (itemsSummary). Without reading it the offer showed no items at all.
+      final summary = data['itemsSummary']?.toString().trim() ?? '';
+      if (summary.isNotEmpty) {
+        final fromSummary = summary
+            .split(',')
+            .map((part) => part.trim())
+            .where((part) => part.isNotEmpty)
+            .map((part) {
+              final m = RegExp(r'^(\d+)\s*[xX×]\s*(.+)$').firstMatch(part);
+              return m == null
+                  ? OrderItem(name: part, price: 0, quantity: 1)
+                  : OrderItem(name: m.group(2)!.trim(), price: 0, quantity: int.parse(m.group(1)!));
+            })
+            .toList();
+        if (fromSummary.isNotEmpty) return fromSummary;
+      }
+      final count = int.tryParse(
+            data['itemCount']?.toString() ?? data['itemsCount']?.toString() ?? data['totalItems']?.toString() ?? '0',
+          ) ??
+          0;
       return List.generate(count, (i) => const OrderItem(name: 'Item', price: 0, quantity: 1));
     }
 
@@ -356,10 +376,10 @@ class DeliveryOrder {
       currentPhase: data['currentPhase'] as String? ?? 'en_route_to_pickup',
       restaurant: RestaurantInfo(
         name: data['restaurantName'] as String? ?? '',
-        addressLine1: data['restaurantAddress'] as String?,
+        addressLine1: (data['restaurantAddress'] ?? data['pickupAddress'])?.toString(),
       ),
       deliveryAddress: DeliveryAddress(
-        street: data['customerAddress'] as String? ?? '',
+        street: (data['customerAddress'] ?? data['dropAddress'] ?? '').toString(),
       ),
       items: parseItems(data['items']),
       customerName: data['customerName'] as String? ?? '',
@@ -368,7 +388,7 @@ class DeliveryOrder {
       customerPhoto: data['customerPhoto'] as String? ?? data['customerImage'] as String?,
       paymentMethod: data['paymentMethod'] as String? ?? 'cash',
       paymentStatus: data['paymentStatus'] as String? ?? 'cod_pending',
-      total: n(data['total']),
+      total: n(data['total'] ?? data['orderValue']),
       riderEarning: n(data['riderEarning'] ?? data['earnings']),
       dropOtpRequired: false,
       dropOtpVerified: false,

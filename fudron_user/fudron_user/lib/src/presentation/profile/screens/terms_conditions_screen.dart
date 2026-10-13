@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../di/support_contact_provider.dart';
 import '../../../core/utils/haptics.dart';
 import '../../branding/app_colors.dart';
 import '../../common_widgets/app_snackbar.dart';
@@ -27,7 +29,7 @@ class TermsConditionsScreen extends StatelessWidget {
     final Uri launchUri = Uri(
       scheme: 'mailto',
       path: emailAddress,
-      //queryParameters: {'subject': 'Terms & Conditions Inquiry - Fudron App'},
+      //queryParameters: {'subject': 'Terms & Conditions Inquiry - Cravioo App'},
     );
     try {
       if (await canLaunchUrl(launchUri)) {
@@ -189,7 +191,7 @@ class TermsConditionsScreen extends StatelessWidget {
                       SizedBox(width: 5.w),
                       Flexible(
                         child: Text(
-                          'By using Fudron, you agree to these Terms and Conditions.',
+                          'By using Cravioo, you agree to these Terms and Conditions.',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 11.5.sp,
@@ -202,7 +204,7 @@ class TermsConditionsScreen extends StatelessWidget {
                   ),
                   SizedBox(height: 3.h),
                   Text(
-                    'Thank you for choosing Fudron!',
+                    'Thank you for choosing Cravioo!',
                     style: TextStyle(
                       fontSize: 11.sp,
                       color: secondaryTextColor,
@@ -321,7 +323,7 @@ class TermsConditionsScreen extends StatelessWidget {
                     children: [
                       TextSpan(text: 'Please read these terms carefully before using the '),
                       TextSpan(
-                        text: 'Fudron',
+                        text: 'Cravioo',
                         style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary),
                       ),
                       TextSpan(text: ' app.'),
@@ -357,14 +359,14 @@ class TermsConditionsScreen extends StatelessWidget {
       {
         'icon': Icons.description_outlined,
         'title': '1. Acceptance of Terms',
-        'subtitle': 'By accessing or using the Fudron app, you agree to be bound by these Terms and Conditions.',
-        'fullText': 'By creating an account, browsing menus, or placing an order on Fudron, you acknowledge that you have read, understood, and agreed to abide by all operating rules and policies stated herein.',
+        'subtitle': 'By accessing or using the Cravioo app, you agree to be bound by these Terms and Conditions.',
+        'fullText': 'By creating an account, browsing menus, or placing an order on Cravioo, you acknowledge that you have read, understood, and agreed to abide by all operating rules and policies stated herein.',
       },
       {
         'icon': Icons.person_outline_rounded,
         'title': '2. Use of the App',
         'subtitle': 'You agree to use the app only for lawful purposes and in accordance with these terms.',
-        'fullText': 'You must be at least 18 years old or under parental supervision to use Fudron services. Accounts registered using false information or automated bots are subject to immediate termination.',
+        'fullText': 'You must be at least 18 years old or under parental supervision to use Cravioo services. Accounts registered using false information or automated bots are subject to immediate termination.',
       },
       {
         'icon': Icons.shopping_bag_outlined,
@@ -382,13 +384,13 @@ class TermsConditionsScreen extends StatelessWidget {
         'icon': Icons.replay_rounded,
         'title': '5. Cancellations & Refunds',
         'subtitle': 'Orders once placed cannot be cancelled. Refunds are issued only in eligible cases as per our Refund Policy.',
-        'fullText': 'Because restaurant partners begin food preparation immediately upon order confirmation, placed orders cannot be cancelled. In cases of missing items or damaged packages, refunds are credited to Fudron Wallet within 24 hours.',
+        'fullText': 'Because restaurant partners begin food preparation immediately upon order confirmation, placed orders cannot be cancelled. In cases of missing items or damaged packages, refunds are credited to Cravioo Wallet within 24 hours.',
       },
       {
         'icon': Icons.shield_outlined,
         'title': '6. User Responsibilities',
         'subtitle': 'You are responsible for providing accurate information and maintaining the confidentiality of your account.',
-        'fullText': 'You must maintain accurate delivery addresses, valid phone numbers, and secure OTP access credentials. Fudron is not responsible for misdeliveries caused by incorrect address coordinates.',
+        'fullText': 'You must maintain accurate delivery addresses, valid phone numbers, and secure OTP access credentials. Cravioo is not responsible for misdeliveries caused by incorrect address coordinates.',
       },
       {
         'icon': Icons.block_rounded,
@@ -400,7 +402,7 @@ class TermsConditionsScreen extends StatelessWidget {
         'icon': Icons.info_outline_rounded,
         'title': '8. Changes to Terms',
         'subtitle': 'We may update these terms at any time. Changes will be posted on this page with the updated date.',
-        'fullText': 'Fudron reserves the right to modify service fees, delivery charges, or operating guidelines at any time. Continued usage constitutes binding acceptance of modified terms.',
+        'fullText': 'Cravioo reserves the right to modify service fees, delivery charges, or operating guidelines at any time. Continued usage constitutes binding acceptance of modified terms.',
       },
       {
         'icon': Icons.gavel_rounded,
@@ -516,6 +518,9 @@ class TermsConditionsScreen extends StatelessWidget {
   /// 3. Need Help? Contact Card (Phone & Email with dynamic actions)
   Widget _buildNeedHelpCard(
       BuildContext context, bool isDark, Color textColor, Color secondaryTextColor) {
+    // Phone and email come from the admin's Business settings, not code.
+    return Consumer(builder: (context, ref, _) {
+    final contact = ref.watch(supportContactProvider).value ?? SupportContact.empty;
     return Container(
       padding: EdgeInsets.all(12.r),
       decoration: BoxDecoration(
@@ -585,7 +590,7 @@ class TermsConditionsScreen extends StatelessWidget {
                 // Left Column: Phone
                 Expanded(
                   child: InkWell(
-                    onTap: () => _makePhoneCall(context, '6375095971'),
+                    onTap: contact.hasPhone ? () => _makePhoneCall(context, contact.phone.replaceAll(' ', '')) : null,
                     borderRadius: BorderRadius.circular(8.r),
                     child: Padding(
                       padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 2.h),
@@ -618,7 +623,7 @@ class TermsConditionsScreen extends StatelessWidget {
                                 ),
                                 SizedBox(height: 1.h),
                                 Text(
-                                  '6375095971',
+                                  contact.hasPhone ? contact.phone : 'Not available',
                                   style: TextStyle(
                                     fontSize: 10.sp,
                                     color: secondaryTextColor,
@@ -644,7 +649,7 @@ class TermsConditionsScreen extends StatelessWidget {
                 // Right Column: Email
                 Expanded(
                   child: InkWell(
-                    onTap: () => _sendEmail(context, 'appzeto@gmail.com'),
+                    onTap: contact.hasEmail ? () => _sendEmail(context, contact.email) : null,
                     borderRadius: BorderRadius.circular(8.r),
                     child: Padding(
                       padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 2.h),
@@ -677,7 +682,7 @@ class TermsConditionsScreen extends StatelessWidget {
                                 ),
                                 SizedBox(height: 1.h),
                                 Text(
-                                  'appzeto@gmail.com',
+                                  contact.hasEmail ? contact.email : 'Not available',
                                   style: TextStyle(
                                     fontSize: 9.5.sp,
                                     color: secondaryTextColor,
@@ -700,5 +705,6 @@ class TermsConditionsScreen extends StatelessWidget {
         ],
       ),
     );
+    });
   }
 }

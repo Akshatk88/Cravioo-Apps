@@ -40,8 +40,11 @@ class SocketConnectionNotifier extends Notifier<bool> {
   Future<void> _sync(bool loggedIn) async {
     final service = ref.read(socketServiceProvider);
     if (loggedIn) {
-      final token = await ref.read(tokenStorageProvider).accessToken;
-      if (token != null && token.isNotEmpty) service.connect(token);
+      final storage = ref.read(tokenStorageProvider);
+      final token = await storage.accessToken;
+      if (token != null && token.isNotEmpty) {
+        service.connect(token, tokenProvider: () => storage.accessToken);
+      }
     } else {
       service.disconnect();
     }

@@ -179,7 +179,7 @@ class _PayLaterScreenState extends ConsumerState<PayLaterScreen> {
                       ),
                       icon: const Icon(Icons.account_balance_wallet_outlined, color: Colors.white),
                       label: Text(
-                        'Pay from Fudron Wallet',
+                        'Pay from Cravioo Wallet',
                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                       ),
                     ),

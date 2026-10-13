@@ -1066,7 +1066,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  user?.name.isNotEmpty == true ? user!.name : 'John Doe',
+                  user?.name.isNotEmpty == true ? user!.name : 'Add your name',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -1076,16 +1076,27 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                   ),
                 ),
                 const SizedBox(height: 6),
+                // No placeholder address: show the email, else the phone.
                 Text(
                   user?.email.isNotEmpty == true
                       ? user!.email
-                      : 'john@example.com',
+                      : (user?.phone ?? ''),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 15, color: secondaryColor),
                 ),
               ],
             ),
+          ),
+          // Edit name / details.
+          IconButton(
+            tooltip: 'Edit profile',
+            onPressed: () => context.push(RouteNames.editProfile),
+            style: IconButton.styleFrom(
+              backgroundColor: const Color(0xFFE8F6EC),
+              minimumSize: const Size(40, 40),
+            ),
+            icon: const Icon(Icons.edit_rounded, size: 20, color: Color(0xFF1FA84F)),
           ),
         ],
       ),
@@ -1253,7 +1264,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         Expanded(
           child: _buildSmallInfoCard(
             icon: Icons.account_balance_wallet_outlined,
-            title: 'Cravio\nMoney',
+            title: 'Cravioo\nMoney',
             value: isLoggedIn ? '₹${walletBalance.toStringAsFixed(0)}' : '₹0',
             cardColor: cardColor,
             isDark: isDark,
@@ -1996,15 +2007,57 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
   Widget _buildDeleteAccountButton() {
     return TextButton(
-      onPressed: () {
-        Haptics.light();
-
-        AppSnackbar.success(context, 'Delete account option selected');
-      },
-      child: const Text(
+      onPressed: _confirmDeleteAccount,
+      child: Text(
         'Delete Account',
-        style: TextStyle(color: Colors.lightGreen, fontSize: 13),
+        style: TextStyle(color: Colors.red.shade400, fontSize: 13),
       ),
     );
+  }
+
+  /// Asks first - deleting an account is permanent - then deletes it server-side
+  /// and returns to guest mode. The button used to only show a snackbar
+  /// ("Delete account option selected") and delete nothing.
+  Future<void> _confirmDeleteAccount() async {
+    Haptics.light();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete account?'),
+        content: const Text(
+          'This permanently deletes your account and all its data. '
+          'This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(
+              'Delete',
+              style: TextStyle(color: Colors.red.shade600, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final viewModel = ref.read(authViewModelProvider.notifier);
+    final deleted = await viewModel.deleteAccount();
+    if (!mounted) return;
+
+    if (deleted) {
+      context.go(RouteNames.home);
+      AppSnackbar.success(context, 'Your account has been deleted');
+    } else {
+      AppSnackbar.error(
+        context,
+        viewModel.lastError ?? 'Could not delete your account. Please try again.',
+      );
+    }
   }
 }

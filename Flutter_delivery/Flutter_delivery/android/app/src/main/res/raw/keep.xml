@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Release builds shrink unused resources. These are referenced only by name
+     (from Dart via flutter_local_notifications, or via getIdentifier / FCM
+     metadata), so the shrinker cannot see them and would strip them: the
+     order alert would then lose its sound and notifications their icon. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@raw/tujh_bin1,@raw/neworder,@mipmap/launcher_icon,@mipmap/ic_launcher,@drawable/*" />

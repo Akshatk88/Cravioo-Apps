@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -164,6 +165,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   String _messageFor(Object e) {
     if (e is ApiException) return e.message;
+    // Dio wraps the server's own message (e.g. rate limiting, invalid OTP) in
+    // DioException.error; showing the generic text hid the real reason.
+    if (e is DioException) {
+      final inner = e.error;
+      if (inner is ApiException) return inner.message;
+      if (e.response?.statusCode == 429) {
+        return 'Too many attempts. Please wait a few minutes and try again.';
+      }
+    }
     return 'Something went wrong. Please try again.';
   }
 

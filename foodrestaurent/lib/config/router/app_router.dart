@@ -28,6 +28,24 @@ import 'package:food_user_application/features/auth/presentation/controllers/aut
 import 'package:food_user_application/features/auth/presentation/controllers/auth_state.dart';
 import 'package:food_user_application/features/auth/presentation/views/application_status_screen.dart';
 import 'package:food_user_application/features/registration/presentation/views/registration_screen.dart';
+import 'package:food_user_application/features/outlets/presentation/views/outlets_screen.dart';
+import 'package:food_user_application/features/ratings_reviews/presentation/views/ratings_reviews_screen.dart';
+import 'package:food_user_application/features/item_slots/presentation/views/item_slot_timings_screen.dart';
+import 'package:food_user_application/features/referral/presentation/views/referral_screen.dart';
+import 'package:food_user_application/features/advertisements/presentation/views/advertisements_screen.dart';
+import 'package:food_user_application/features/advertisements/presentation/views/ad_details_screen.dart';
+import 'package:food_user_application/features/advertisements/presentation/views/ad_form_screen.dart';
+import 'package:food_user_application/features/wallet/presentation/views/withdrawal_history_screen.dart';
+import 'package:food_user_application/features/reports/presentation/views/download_report_screen.dart';
+import 'package:food_user_application/features/fssai/presentation/views/fssai_details_screen.dart';
+import 'package:food_user_application/features/fssai/presentation/views/fssai_update_screen.dart';
+import 'package:food_user_application/features/profile_edit/presentation/views/edit_cuisines_screen.dart';
+import 'package:food_user_application/features/help/presentation/views/help_centre_screen.dart';
+import 'package:food_user_application/features/help/presentation/views/settings_screen.dart';
+import 'package:food_user_application/features/help/presentation/views/privacy_policy_screen.dart';
+import 'package:food_user_application/features/help/presentation/views/terms_and_conditions_screen.dart';
+import 'package:food_user_application/features/help/presentation/views/support_policy_screen.dart';
+import 'package:food_user_application/features/diagnostics/presentation/views/notification_check_screen.dart';
 import 'package:food_user_application/features/registration/presentation/views/registration_success_screen.dart';
 import 'package:food_user_application/features/dining/presentation/views/dining_bookings_screen.dart';
 import 'package:food_user_application/features/dining/presentation/views/dining_management_screen.dart';
@@ -178,6 +196,97 @@ final goRouterProvider = Provider<GoRouter>((ref) {
             ],
           ),
         ],
+      ),
+      GoRoute(
+        path: '/ratings-reviews',
+        builder: (context, state) => const RatingsReviewsScreen(),
+      ),
+      GoRoute(
+        path: '/item-slot-timings',
+        builder: (context, state) => const ItemSlotTimingsScreen(),
+      ),
+      GoRoute(
+        path: '/refer-earn',
+        builder: (context, state) => const ReferralScreen(),
+      ),
+      GoRoute(
+        path: '/advertisements',
+        builder: (context, state) => const AdvertisementsScreen(),
+      ),
+      // '/advertisements/new' must come before '/advertisements/:id', or "new"
+      // would be read as an ad id.
+      GoRoute(
+        path: '/advertisements/new',
+        builder: (context, state) => const NewAdvertisementScreen(),
+      ),
+      GoRoute(
+        path: '/advertisements/:id',
+        builder: (context, state) =>
+            AdDetailsScreen(adId: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/advertisements/:id/edit',
+        builder: (context, state) =>
+            EditAdvertisementScreen(adId: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/withdrawal-history',
+        builder: (context, state) => const WithdrawalHistoryScreen(),
+      ),
+      GoRoute(
+        path: '/download-report',
+        builder: (context, state) => const DownloadReportScreen(),
+      ),
+      GoRoute(
+        path: '/fssai',
+        builder: (context, state) => const FssaiDetailsScreen(),
+      ),
+      GoRoute(
+        path: '/fssai/update',
+        builder: (context, state) => const FssaiUpdateScreen(),
+      ),
+      GoRoute(
+        path: '/edit-cuisines',
+        builder: (context, state) => const EditCuisinesScreen(),
+      ),
+      GoRoute(
+        path: '/help-centre',
+        builder: (context, state) => const HelpCentreScreen(),
+      ),
+      GoRoute(
+        path: '/settings',
+        builder: (context, state) => const SettingsScreen(),
+      ),
+      GoRoute(
+        path: '/privacy-policy',
+        builder: (context, state) => const PrivacyPolicyScreen(),
+      ),
+      GoRoute(
+        path: '/terms-and-conditions',
+        builder: (context, state) => const TermsAndConditionsScreen(),
+      ),
+      GoRoute(
+        path: '/support-policy',
+        builder: (context, state) => const SupportPolicyScreen(),
+      ),
+      GoRoute(
+        path: '/notification-check',
+        builder: (context, state) => const NotificationCheckScreen(),
+      ),
+      GoRoute(
+        path: '/outlets',
+        builder: (context, state) => const OutletsScreen(),
+      ),
+      GoRoute(
+        path: '/outlets/onboard',
+        builder: (context, state) {
+          final extra = state.extra;
+          final map = extra is Map ? extra : const {};
+          return RegistrationScreen(
+            initialPhone: map['phone']?.toString() ?? '',
+            initialToken: map['token']?.toString(),
+          );
+        },
       ),
       GoRoute(
         path: '/notifications',

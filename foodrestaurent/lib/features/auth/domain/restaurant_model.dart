@@ -72,6 +72,11 @@ class RestaurantModel {
     required this.rating,
     required this.totalRatings,
     required this.restaurantId,
+    this.hasPendingProfileChanges = false,
+    this.pendingProfileImage = '',
+    this.pendingChangeFields = const [],
+    this.pendingReviewSubmitted = false,
+    this.serverMessage = '',
   });
 
   factory RestaurantModel.fromJson(Map<String, dynamic> json) {
@@ -98,6 +103,15 @@ class RestaurantModel {
         : <String, dynamic>{};
     final pendingLocation = json['pendingLocation'] is Map
         ? Map<String, dynamic>.from(json['pendingLocation'] as Map)
+        : <String, dynamic>{};
+    // For an already-approved outlet the backend stages reviewable edits
+    // (name, contact, logo, bank, documents...) in `pendingProfileChanges`
+    // and keeps serving the previous live values until an admin approves.
+    final pendingChanges = json['pendingProfileChanges'] is Map
+        ? Map<String, dynamic>.from(json['pendingProfileChanges'] as Map)
+        : <String, dynamic>{};
+    final pendingProposed = pendingChanges['proposed'] is Map
+        ? Map<String, dynamic>.from(pendingChanges['proposed'] as Map)
         : <String, dynamic>{};
 
     return RestaurantModel(
@@ -158,6 +172,11 @@ class RestaurantModel {
       totalRatings: (json['totalRatings'] is num)
           ? (json['totalRatings'] as num).toInt()
           : 0,
+      hasPendingProfileChanges: pendingChanges['hasPendingUpdate'] == true,
+      pendingProfileImage: extractImageUrl(pendingProposed['profileImage']),
+      pendingChangeFields: pendingProposed.keys.toList(),
+      pendingReviewSubmitted: json['pendingReviewSubmitted'] == true,
+      serverMessage: (json['message'] ?? '').toString(),
     );
   }
 
@@ -218,6 +237,25 @@ class RestaurantModel {
 
   final double rating;
   final int totalRatings;
+
+  /// True while an admin still has to review staged profile edits.
+  final bool hasPendingProfileChanges;
+
+  /// Logo URL waiting for admin approval ('' when no logo change is staged).
+  /// [profileImage] keeps the live (customer-visible) logo until then.
+  final String pendingProfileImage;
+
+  /// Keys of the staged fields in `pendingProfileChanges.proposed`.
+  final List<String> pendingChangeFields;
+
+  /// Only set on the PATCH /profile response: the edit was staged for admin
+  /// review instead of going live.
+  final bool pendingReviewSubmitted;
+
+  /// Optional server message accompanying a PATCH /profile response.
+  final String serverMessage;
+
+  bool get hasPendingLogo => pendingProfileImage.isNotEmpty;
 
   bool get isApproved => status == 'approved';
   bool get isPending => status == 'pending';

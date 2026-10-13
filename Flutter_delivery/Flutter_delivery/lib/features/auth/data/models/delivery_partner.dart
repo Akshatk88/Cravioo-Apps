@@ -33,6 +33,7 @@ class DeliveryPartner {
     this.referralCount,
     this.rating,
     this.totalRatings,
+    this.maxConcurrentOrders = 1,
   });
 
   final String id;
@@ -68,6 +69,9 @@ class DeliveryPartner {
   final int? referralCount;
   final double? rating;
   final int? totalRatings;
+
+  /// Admin-set: how many orders this partner may hold at once (default 1).
+  final int maxConcurrentOrders;
 
   bool get isApproved => status == 'approved';
   bool get isRejected => status == 'rejected';
@@ -110,10 +114,12 @@ class DeliveryPartner {
       referralCount: (json['referralCount'] as num?)?.toInt(),
       rating: (json['rating'] as num?)?.toDouble(),
       totalRatings: (json['totalRatings'] as num?)?.toInt(),
+      maxConcurrentOrders:
+          ((json['maxConcurrentOrders'] as num?)?.toInt() ?? 1).clamp(1, 10),
     );
   }
 
-  DeliveryPartner copyWith({String? availabilityStatus}) {
+  DeliveryPartner copyWith({String? availabilityStatus, String? profilePhoto}) {
     return DeliveryPartner(
       id: id,
       name: name,
@@ -130,7 +136,7 @@ class DeliveryPartner {
       panNumber: panNumber,
       aadharNumber: aadharNumber,
       drivingLicenseNumber: drivingLicenseNumber,
-      profilePhoto: profilePhoto,
+      profilePhoto: profilePhoto ?? this.profilePhoto,
       aadharPhoto: aadharPhoto,
       panPhoto: panPhoto,
       drivingLicensePhoto: drivingLicensePhoto,
@@ -148,6 +154,7 @@ class DeliveryPartner {
       referralCount: referralCount,
       rating: rating,
       totalRatings: totalRatings,
+      maxConcurrentOrders: maxConcurrentOrders,
     );
   }
 }

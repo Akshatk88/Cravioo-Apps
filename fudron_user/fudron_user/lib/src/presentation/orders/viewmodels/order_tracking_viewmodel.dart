@@ -155,6 +155,27 @@ class OrderTrackingViewModel extends Notifier<OrderTrackingState> {
   /// triggers (start, rider assigned, first movement, status change, timer).
   bool _routeFetchInFlight = false;
 
+  /// Set once `GET /food/orders/:id/route` answers 404. The endpoint is not
+  /// deployed on the backend yet, so retrying it every few seconds only spams
+  /// the logs — the map falls back to the RTDB polyline or a dotted
+  /// rider-to-destination line and the marker keeps tracking regardless.
+  bool _routeEndpointMissing = false;
+
+  /// Second RTDB node keyed by the human order id. The backend seeds the
+  /// accept-time route (`polyline`, restaurant/customer coords) under
+  /// `active_orders/<order.orderId>` but writes live rider pings under
+  /// `active_orders/<mongoId>`, so the route never reached the main listener.
+  StreamSubscription<ActiveOrderRtdbModel?>? _rtdbRouteSub;
+
+  /// Counts poll ticks so the order (and its server-computed ETA) is refreshed
+  /// periodically even while the socket is connected.
+  int _pollTicks = 0;
+
+  /// Socket + room joined in [_joinSocket], captured so teardown can leave the
+  /// room without `ref.read` (teardown also runs from `ref.onDispose`).
+  SocketService? _joinedSocket;
+  String? _joinedSocketOrderId;
+
   /// When Socket.IO last delivered a rider position.
   ///
   /// The socket outranks the other sources while it is genuinely live, being
@@ -197,15 +218,20 @@ class OrderTrackingViewModel extends Notifier<OrderTrackingState> {
     if (currentOrder != null && currentOrder.id.isNotEmpty) {
       // 2. RTDB for the route polyline + a location fallback.
       _subscribeRtdb(currentOrder.id);
+      _subscribeRtdbRoute(currentOrder.orderNumber, currentOrder.id);
       // 3. Shared socket for live location-update + order_status_update.
       _joinSocket(currentOrder.id);
       // 4. REST fallback poll, in case both of the above stay silent.
       // 4s, not 10s. This is the only position source when the socket is down, and
       // a 10s gap is what made the rider look almost stationary while their own app
       // showed them moving. GET /orders/:id measures ~31ms, so the extra calls are
-      // cheap, and this only runs while the socket is actually disconnected.
+      // cheap. While the socket is up it still refreshes every ~20s, because the
+      // live ETA is only recomputed server-side on an order read and no socket
+      // event carries it.
       _pollTimer ??= Timer.periodic(const Duration(seconds: 4), (_) {
-        if (!ref.read(socketServiceProvider).isConnected) refresh();
+        _pollTicks++;
+        final socketUp = ref.read(socketServiceProvider).isConnected;
+        if (!socketUp || _pollTicks % 5 == 0) refresh();
       });
       // 5. Road route from the rider's live position — same 30s cadence as the
       //    rider app, which is why that map looks right and this one didn't.
@@ -222,7 +248,7 @@ class OrderTrackingViewModel extends Notifier<OrderTrackingState> {
   /// stays as the fallback, so a flaky route call degrades to the old behaviour
   /// rather than clearing the line off the map.
   Future<void> _fetchRoute() async {
-    if (_orderId.isEmpty || _routeFetchInFlight) return;
+    if (_orderId.isEmpty || _routeFetchInFlight || _routeEndpointMissing) return;
     _routeFetchInFlight = true;
     try {
       final data = await ref.read(orderRemoteDataSourceProvider).getRoute(_orderId);
@@ -259,6 +285,11 @@ class OrderTrackingViewModel extends Notifier<OrderTrackingState> {
         'origin=$oLat,$oLng',
       );
       state = state.copyWith(polyline: encoded, routePoints: points);
+    } on NotFoundFailure {
+      // Endpoint not deployed — stop asking for this order. Tracking continues
+      // on socket/RTDB/REST positions; the map draws its own fallback line.
+      _routeEndpointMissing = true;
+      _trackingLog('Route endpoint unavailable (404) — falling back to RTDB/straight-line route');
     } catch (e) {
       _trackingLog('Route fetch failed ($e) — keeping existing route');
     } finally {
@@ -272,9 +303,11 @@ class OrderTrackingViewModel extends Notifier<OrderTrackingState> {
   void _joinSocket(String orderId) {
     final service = ref.read(socketServiceProvider);
     service.joinTracking(orderId);
+    _joinedSocket = service;
+    _joinedSocketOrderId = orderId;
 
     _socketSub = service.orderEvents.listen((message) {
-      if (message.orderId != null && message.orderId != _orderId) return;
+      if (!_isThisOrder(message.orderId)) return;
       switch (message.event) {
         case OrderSocketEvent.riderMoved:
           final lat = message.lat;
@@ -285,7 +318,9 @@ class OrderTrackingViewModel extends Notifier<OrderTrackingState> {
             state = state.copyWith(
               riderLat: lat,
               riderLng: lng,
-              heading: message.heading,
+              // 0 is what the backend substitutes for "no heading"; keep the last
+              // real one rather than snapping the bike north.
+              heading: message.heading != 0 ? message.heading : state.heading,
               hasRiderFix: true,
               isLocatingRider: false,
               socketConnected: true,
@@ -309,6 +344,58 @@ class OrderTrackingViewModel extends Notifier<OrderTrackingState> {
           unawaited(_fetchRoute());
       }
     });
+  }
+
+  /// The screen may have been opened with either the Mongo id or the human
+  /// order number (push payloads carry both), while socket payloads carry
+  /// whatever id the rider app emitted. A strict `!= _orderId` check dropped
+  /// every location-update when those differed, freezing the marker.
+  bool _isThisOrder(String? id) {
+    if (id == null || id.isEmpty) return true;
+    if (id == _orderId) return true;
+    final order = state.order;
+    if (order == null) return false;
+    return id == order.id || (order.orderNumber.isNotEmpty && id == order.orderNumber);
+  }
+
+  /// Watches `active_orders/<orderNumber>` for the accept-time route only.
+  ///
+  /// Positions from this node are ignored: they are seeded with the
+  /// restaurant's coordinates, not the rider's.
+  void _subscribeRtdbRoute(String orderNumber, String mongoId) {
+    _rtdbRouteSub?.cancel();
+    _rtdbRouteSub = null;
+    if (orderNumber.isEmpty || orderNumber == mongoId) return;
+    final rtdb = ref.read(orderRtdbDataSourceProvider);
+    _rtdbRouteSub = rtdb.watchActiveOrder(orderNumber).listen((data) {
+      if (data == null) return;
+      state = state.copyWith(
+        restaurantLat: state.restaurantLat ?? data.restaurantLat,
+        restaurantLng: state.restaurantLng ?? data.restaurantLng,
+        customerLat: state.customerLat ?? data.customerLat,
+        customerLng: state.customerLng ?? data.customerLng,
+      );
+      final encoded = data.polyline;
+      if (_hasRestRoute || encoded == null || encoded.isEmpty) return;
+      if (encoded == state.polyline) return;
+      try {
+        final points = _decodePolyline(encoded);
+        if (points.length < 2) return;
+        _trackingLog('RTDB route node: ${points.length} points');
+        state = state.copyWith(polyline: encoded, routePoints: points);
+      } catch (e) {
+        _trackingLog('RTDB route node decode failed: $e');
+      }
+    }, onError: (Object e) => _trackingLog('RTDB route node error: $e'));
+  }
+
+  /// User-facing text for a failed order load. Never the raw failure text —
+  /// that is server/transport wording ("Not found.", "DioException ...").
+  static String _friendlyError(Failure f) {
+    if (f is NotFoundFailure) return 'We could not find this order.';
+    if (f is NetworkFailure) return 'You seem to be offline. Check your connection and try again.';
+    if (f is TimeoutFailure) return 'This is taking longer than usual. Please try again.';
+    return 'Could not load tracking details.';
   }
 
   Future<void> refresh() async {
@@ -350,9 +437,17 @@ class OrderTrackingViewModel extends Notifier<OrderTrackingState> {
         unawaited(ref.read(activeOrderViewModelProvider.notifier).fetchActiveOrder());
       }
     } on Failure catch (f) {
-      state = state.copyWith(isLoading: false, error: f.message);
-    } catch (_) {
-      state = state.copyWith(isLoading: false, error: 'Could not load tracking details.');
+      _trackingLog('Order refresh failed ($f)');
+      // A failed background poll must not replace a loaded order with an error;
+      // only the first load surfaces one.
+      if (state.order == null) {
+        state = state.copyWith(isLoading: false, error: _friendlyError(f));
+      }
+    } catch (e) {
+      _trackingLog('Order refresh failed ($e)');
+      if (state.order == null) {
+        state = state.copyWith(isLoading: false, error: 'Could not load tracking details.');
+      }
     }
   }
 
@@ -388,7 +483,7 @@ class OrderTrackingViewModel extends Notifier<OrderTrackingState> {
           riderLat: useRtdbPosition ? rtdbData.lat : state.riderLat,
           riderLng: useRtdbPosition ? rtdbData.lng : state.riderLng,
           hasRiderFix: state.hasRiderFix || rtdbHasLiveFix,
-          heading: rtdbData.heading,
+          heading: useRtdbPosition && rtdbData.heading != 0 ? rtdbData.heading : state.heading,
           speed: rtdbData.speed,
           accuracy: rtdbData.accuracy,
           restaurantLat: rtdbData.restaurantLat ?? state.restaurantLat,
@@ -424,7 +519,7 @@ class OrderTrackingViewModel extends Notifier<OrderTrackingState> {
       // time, so it is only a position source until something real arrives.
       riderLat: state.hasRiderFix ? state.riderLat : (rtdbData.lat ?? state.riderLat),
       riderLng: state.hasRiderFix ? state.riderLng : (rtdbData.lng ?? state.riderLng),
-        heading: rtdbData.heading,
+        heading: rtdbData.heading != 0 ? rtdbData.heading : state.heading,
         speed: rtdbData.speed,
         accuracy: rtdbData.accuracy,
         restaurantLat: rtdbData.restaurantLat ?? state.restaurantLat,
@@ -466,6 +561,10 @@ class OrderTrackingViewModel extends Notifier<OrderTrackingState> {
   void _teardown() {
     _rtdbSub?.cancel();
     _rtdbSub = null;
+    _rtdbRouteSub?.cancel();
+    _rtdbRouteSub = null;
+    _routeEndpointMissing = false;
+    _pollTicks = 0;
     _socketSub?.cancel();
     _socketSub = null;
     _pollTimer?.cancel();
@@ -475,7 +574,14 @@ class OrderTrackingViewModel extends Notifier<OrderTrackingState> {
     _hasRestRoute = false;
     _lastSocketFixAt = null;
     _routeFetchInFlight = false;
-    if (_orderId.isNotEmpty) ref.read(socketServiceProvider).leaveTracking(_orderId);
+    // Uses the instance captured at join time: _teardown also runs from
+    // ref.onDispose, where ref.read is not allowed.
+    final joined = _joinedSocket;
+    _joinedSocket = null;
+    if (joined != null && _joinedSocketOrderId != null) {
+      joined.leaveTracking(_joinedSocketOrderId!);
+    }
+    _joinedSocketOrderId = null;
   }
 }
 
